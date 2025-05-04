@@ -71,7 +71,7 @@ export default function Dashboard() {
           
           <div>
             <h1 className="text-2xl font-bold">{session.user?.name}</h1>
-            <p className="text-gray-600">@{session.user?.githubUsername}</p>
+            <p className="text-gray-600">@{session.user?.githubUsername || 'Unknown'}</p>
             <p className="text-gray-600">{session.user?.email}</p>
           </div>
         </div>

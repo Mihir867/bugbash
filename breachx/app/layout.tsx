@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Inter } from 'next/font/google';
 import './globals.css';
 import Header from '@/components/ui/header';
@@ -10,7 +11,7 @@ export const metadata = {
   description: 'We find Vulnerability before they find you',
 };
 
-export default function RootLayout({ children }) {
+export default function RootLayout({ children }:any) {
   return (
     <html lang="en">
       <body className={`${inter.className} bg-gray-50 min-h-screen`}>

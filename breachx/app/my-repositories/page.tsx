@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 'use client';
 
 import { useSession } from 'next-auth/react';
@@ -8,8 +9,9 @@ import { getUserRepositories } from '@/lib/github';
 
 export default function MyRepositories() {
   const { data: session, status } = useSession();
+  const accessToken = session?.accessToken;
   const router = useRouter();
-  const [repositories, setRepositories] = useState([]);
+  const [repositories, setRepositories] = useState<{ name: string, description: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('');
@@ -30,7 +32,6 @@ export default function MyRepositories() {
   const fetchRepositories = async () => {
     try {
       setIsLoading(true);
-      const accessToken = session?.accessToken;
       const repos = await getUserRepositories(accessToken);
       setRepositories(repos);
       

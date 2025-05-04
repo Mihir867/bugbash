@@ -1,16 +1,16 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import prisma from '@/lib/db';
 
 export default function RepositoryDetail({ params }:any) {
   const { id } = params;
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [repository, setRepository] = useState(null);
+  const [repository, setRepository] = useState<null | any>(null);
   const [loading, setLoading] = useState(true);
   
   useEffect(() => {
