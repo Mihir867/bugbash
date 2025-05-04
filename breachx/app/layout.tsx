@@ -6,8 +6,8 @@ import AuthProvider from '@/lib/auth-provider';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
-  title: 'GitHub Repository Manager',
-  description: 'Manage your GitHub repositories with ease',
+  title: 'Breach X',
+  description: 'We find Vulnerability before they find you',
 };
 
 export default function RootLayout({ children }) {

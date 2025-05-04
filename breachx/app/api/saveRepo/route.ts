@@ -3,31 +3,47 @@ import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
 import { NextResponse } from 'next/server';
 
-export async function GET(request) {
-  const session = await getServerSession(authOptions);
-  
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  
-  try {
-    // Get all repositories for the current user
-    const repositories = await prisma.repository.findMany({
-      where: {
-        userId: session.user.id,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-    
-    return NextResponse.json(repositories);
-  } catch (error) {
-    console.error('Error fetching repositories:', error);
-    return NextResponse.json({ error: 'Failed to fetch repositories' }, { status: 500 });
-  }
-}
+import { Octokit } from "@octokit/rest";
 
+const octokit = new Octokit();
+
+async function fetchAllRepos(username: string) {
+  const repos = [];
+  let page = 1;
+  const perPage = 100; // GitHub max per page
+
+  while (true) {
+    const { data } = await octokit.rest.repos.listForUser({
+      username,
+      per_page: perPage,
+      page,
+    });
+
+    repos.push(...data);
+
+    if (data.length < perPage) break; // no more pages
+    page++;
+  }
+
+  return repos;
+}
+export async function GET(request) {
+    const session = await getServerSession(authOptions);
+  
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  
+    try {
+      const repositories = await fetchAllRepos(session.user.githubUsername);
+  
+      return NextResponse.json(repositories);
+    } catch (error) {
+      console.error('Error fetching repositories:', error);
+      return NextResponse.json({ error: 'Failed to fetch repositories' }, { status: 500 });
+    }
+  }
+  
 export async function POST(request) {
   const session = await getServerSession(authOptions);
   
