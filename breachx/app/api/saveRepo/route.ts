@@ -1,4 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
+
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
@@ -28,7 +30,7 @@ async function fetchAllRepos(username: string) {
 
   return repos;
 }
-export async function GET(request) {
+export async function GET() {
     const session = await getServerSession(authOptions);
   
     if (!session) {
@@ -36,7 +38,7 @@ export async function GET(request) {
     }
   
     try {
-      const repositories = await fetchAllRepos(session.user.githubUsername);
+      const repositories = await fetchAllRepos(session.user?.githubUsername);
   
       return NextResponse.json(repositories);
     } catch (error) {
@@ -45,7 +47,7 @@ export async function GET(request) {
     }
   }
   
-export async function POST(request) {
+export async function POST(request:any) {
   const session = await getServerSession(authOptions);
   
   if (!session) {
@@ -60,7 +62,7 @@ export async function POST(request) {
     const existingRepo = await prisma.repository.findUnique({
       where: {
         userId_repoId: {
-          userId: session.user.id,
+          userId: session.user?.id,
           repoId: repoId,
         },
       },
@@ -77,7 +79,7 @@ export async function POST(request) {
         name,
         description,
         url,
-        userId: session.user.id,
+        userId: session.user?.id,
       },
     });
     

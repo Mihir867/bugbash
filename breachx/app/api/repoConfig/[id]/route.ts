@@ -13,7 +13,7 @@ export async function POST(req: NextRequest, { params }: { params: { repoId: str
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
   
-    const repoId = params.id;
+    const repoId = params.repoId;
     const body = await req.json();
   
     const {
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { repoId: str
       const repository = await prisma.repository.findFirst({
         where: {
           repoId,
-          userId: session.user.id,
+          userId: session.user?.id || null,
         },
       });
   
@@ -105,7 +105,7 @@ export async function GET(req: NextRequest, { params }: { params: { repoId: stri
     const repository = await prisma.repository.findFirst({
       where: {
         repoId: repoId,
-        userId: session.user.id,
+        userId: session.user?.id,
       },
       include: {
         config: true,

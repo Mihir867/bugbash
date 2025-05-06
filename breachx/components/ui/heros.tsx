@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, BookOpen } from 'lucide-react';
 
@@ -6,7 +5,7 @@ export default function Heros() {
   return (
     <main className="min-h-screen">
       {/* Hero Section */}
-      <section className="relative rounded-b-full min-h-screen flex justify-center w-full overflow-hidden bg-black text-white">
+      <section className="relative rounded-b-4xl md:rounded-b-full md:min-h-screen flex justify-center w-full overflow-hidden bg-black text-white">
         {/* Dynamic Background with radial gradient and animated stars */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(147,51,234,0.5)_0%,rgba(88,28,135,0.3)_50%,rgba(0,0,0,1)_100%)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(216,180,254,0.4)_0%,transparent_50%)]"></div>

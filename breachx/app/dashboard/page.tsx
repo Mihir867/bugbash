@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client"
 
 import { useState, useEffect } from "react"
@@ -76,7 +78,9 @@ export default function Dashboard() {
             clearInterval(timer)
             // Redirect after progress reaches 100%
             setTimeout(() => {
-              router.push(`/repository/${selectedRepo.id}`)
+              if (selectedRepo) {
+                router.push(`/repository/${selectedRepo.id}`)
+              }
             }, 500)
           }
           return newProgress
@@ -92,17 +96,15 @@ export default function Dashboard() {
       await new Promise((resolve) => setTimeout(resolve, 1000))
 
       const response = await fetch("/api/saveRepo")
-      if (response.ok) {
+     
         const data = await response.json()
         setRepositories(data)
-      } else {
-        // Fallback to mock data
-        setRepositories(getMockRepositories())
-      }
+     
+       
+      
     } catch (error) {
       console.error("Error fetching repositories:", error)
-      // Fallback to mock data
-      setRepositories(getMockRepositories())
+     
     } finally {
       setLoading(false)
     }
@@ -122,7 +124,7 @@ export default function Dashboard() {
     }, 300)
   }
 
-  const saveRepoToDatabase = async (repo) => {
+  const saveRepoToDatabase = async (repo:any) => {
     setSavingRepo(true)
     try {
       const response = await fetch("/api/saveRepo", {
@@ -155,6 +157,7 @@ export default function Dashboard() {
 
     // Save the configuration
     try {
+      if(selectedRepo) {
       await fetch(`/api/repoConfig/${selectedRepo.id}`, {
         method: "POST",
         headers: {
@@ -169,6 +172,7 @@ export default function Dashboard() {
           env: hasEnv ? envVars.filter((v) => v.key.trim() !== "") : [],
         }),
       })
+    }
     } catch (error) {
       console.error("Error saving configuration:", error)
     }
@@ -178,19 +182,19 @@ export default function Dashboard() {
     setEnvVars([...envVars, { key: "", value: "" }])
   }
 
-  const updateEnvVar = (index, field, value) => {
+  const updateEnvVar = ({index, field, value}:any) => {
     const updatedVars = [...envVars]
     updatedVars[index][field] = value
     setEnvVars(updatedVars)
   }
 
-  const removeEnvVar = (index) => {
+  const removeEnvVar = (index:any) => {
     const updatedVars = [...envVars]
     updatedVars.splice(index, 1)
     setEnvVars(updatedVars)
   }
 
-  const getLanguageColor = (language) => {
+  const getLanguageColor = (language:any) => {
     const colors = {
       JavaScript: "bg-yellow-400",
       TypeScript: "bg-blue-500",
@@ -208,13 +212,13 @@ export default function Dashboard() {
   }
 
   const filteredRepositories = repositories.filter(
-    (repo) =>
+    (repo:any) =>
       repo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (repo.description && repo.description.toLowerCase().includes(searchTerm.toLowerCase())),
   )
 
   // Sort repositories based on selected option
-  const sortedRepositories = [...filteredRepositories].sort((a, b) => {
+  const sortedRepositories = [...filteredRepositories].sort(({a, b}:any) => {
     switch (sortOption) {
       case "stars":
         return (b.stargazers_count || 0) - (a.stargazers_count || 0)
@@ -272,7 +276,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <h2 className="text-lg font-medium text-white">Welcome back, {session?.user?.name || "User"}</h2>
-                  <p className="text-sm text-gray-400">Let's deploy something amazing today</p>
+                  <p className="text-sm text-gray-400">Let deploy something amazing today</p>
                 </div>
               </div>
 
@@ -405,7 +409,7 @@ export default function Dashboard() {
                   </Button>
                 </div>
               ) : (
-                sortedRepositories.map((repo) => (
+                sortedRepositories.map((repo:any) => (
                   <motion.div
                     key={repo.id}
                     whileHover={{ scale: 1.02 }}
@@ -817,8 +821,8 @@ export default function Dashboard() {
                 <div className="mt-8 text-center">
                   <p className="text-lg font-medium text-white mb-2">Preparing your workspace</p>
                   <p className="text-gray-400 text-sm max-w-md">
-                    We're analyzing your code, setting up your repository, and configuring your deployment environment.
-                    You'll be redirected shortly...
+                    We are analyzing your code, setting up your repository, and configuring your deployment environment.
+                    You will be redirected shortly...
                   </p>
                 </div>
 

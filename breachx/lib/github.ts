@@ -1,12 +1,14 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { Octokit } from "@octokit/rest";
 
-export async function createOctokit(accessToken) {
+export async function createOctokit(accessToken:any) {
   return new Octokit({
     auth: accessToken,
   });
 }
 
-export async function getUserRepositories(accessToken) {
+export async function getUserRepositories(accessToken:any) {
   const octokit = await createOctokit(accessToken);
   
   // Get all repositories for the authenticated user
@@ -32,7 +34,7 @@ export async function getUserRepositories(accessToken) {
   }));
 }
 
-export async function getRepositoryDetails(accessToken, owner, repo) {
+export async function getRepositoryDetails({accessToken, owner, repo}:any) {
   const octokit = await createOctokit(accessToken);
   
   const { data } = await octokit.repos.get({
@@ -43,7 +45,7 @@ export async function getRepositoryDetails(accessToken, owner, repo) {
   return data;
 }
 
-export async function getUserProfile(accessToken) {
+export async function getUserProfile(accessToken:any) {
   const octokit = await createOctokit(accessToken);
   
   const { data } = await octokit.users.getAuthenticated();

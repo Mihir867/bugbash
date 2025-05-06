@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { PrismaClient } from '@prisma/client';
 
 const globalForPrisma: any = global;
