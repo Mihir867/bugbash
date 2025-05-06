@@ -1,33 +1,35 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
+import { use } from 'react';
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-export default function RepositoryDetail({ params }:any) {
-  const { id } = params;
+export default function RepositoryDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params); // ✅ unwrap the promise
+
   const { data: session, status } = useSession();
   const router = useRouter();
   const [repository, setRepository] = useState<null | any>(null);
   const [loading, setLoading] = useState(true);
-  
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/sign-in');
     }
   }, [status, router]);
-  
+
   useEffect(() => {
     if (session) {
       fetchRepositoryDetails();
     }
   }, [session, id]);
-  
+
   const fetchRepositoryDetails = async () => {
     try {
-      const response = await fetch(`/api/repository/${id}`);
+      const response = await fetch(`/api/repoConfig/${id}`);
       if (response.ok) {
         const data = await response.json();
         setRepository(data);
@@ -41,7 +43,7 @@ export default function RepositoryDetail({ params }:any) {
       setLoading(false);
     }
   };
-  
+
   if (status === 'loading' || (status === 'authenticated' && loading)) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -52,11 +54,9 @@ export default function RepositoryDetail({ params }:any) {
       </div>
     );
   }
-  
-  if (!session) {
-    return null; // Will redirect via useEffect
-  }
-  
+
+  if (!session) return null;
+
   if (!repository) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -77,7 +77,7 @@ export default function RepositoryDetail({ params }:any) {
   }
   
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 pb-8 py-32">
       <div className="mb-6">
         <Link
           href="/dashboard"

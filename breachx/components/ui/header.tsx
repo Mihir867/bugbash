@@ -102,12 +102,12 @@ export default function Header() {
                       </div>
                     )}
                     <span className="text-gray-300">{session.user?.name}</span>
-                    <Button
+                    {/* <Button
                       onClick={() => signOut()}
                       className="bg-red-600/70 cursor-pointer hover:bg-red-700/80 text-white px-3 py-1 rounded-md text-sm transition-all"
                     >
                       Sign Out
-                    </Button>
+                    </Button> */}
                   </div>
                 )}
               </nav>

@@ -1,129 +1,846 @@
-'use client';
+"use client"
 
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import Container from '@/components/ui/container';
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
+import {
+  Search,
+  Grid3X3,
+  List,
+  ChevronDown,
+  Cloud,
+  Plus,
+  Star,
+  GitFork,
+  ArrowRight,
+  X,
+  Clock,
+  Github,
+  Loader2,
+  Filter,
+  SlidersHorizontal,
+  Sparkles,
+} from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardFooter } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { motion, AnimatePresence } from "framer-motion"
+import { Progress } from "@/components/ui/progress"
 
 export default function Dashboard() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-  const [repositories, setRepositories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  
+  const { data: session, status } = useSession()
+  const router = useRouter()
+  const [repositories, setRepositories] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedRepo, setSelectedRepo] = useState(null)
+  const [viewMode, setViewMode] = useState("grid")
+  const [searchTerm, setSearchTerm] = useState("")
+  const [transitionState, setTransitionState] = useState("browsing") // browsing, configuring, redirecting
+  const [savingRepo, setSavingRepo] = useState(false)
+  const [hasDocker, setHasDocker] = useState(false)
+  const [dockerConfig, setDockerConfig] = useState("")
+  const [rootDirectory, setRootDirectory] = useState("")
+  const [buildCommand, setBuildCommand] = useState("")
+  const [runCommand, setRunCommand] = useState("")
+  const [hasEnv, setHasEnv] = useState(false)
+  const [envVars, setEnvVars] = useState([{ key: "", value: "" }])
+  const [progress, setProgress] = useState(0)
+  const [sortOption, setSortOption] = useState("activity")
+
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/sign-in');
+    if (status === "unauthenticated") {
+      router.push("/sign-in")
     }
-  }, [status, router]);
-  
+  }, [status, router])
+
   useEffect(() => {
     if (session) {
-      fetchUserRepositories();
+      fetchUserRepositories()
     }
-  }, [session]);
-  
+  }, [session])
+
+  // Progress bar animation for redirecting state
+  useEffect(() => {
+    if (transitionState === "redirecting") {
+      const timer = setInterval(() => {
+        setProgress((oldProgress) => {
+          const newProgress = Math.min(oldProgress + 2, 100)
+          if (newProgress === 100) {
+            clearInterval(timer)
+            // Redirect after progress reaches 100%
+            setTimeout(() => {
+              router.push(`/repository/${selectedRepo.id}`)
+            }, 500)
+          }
+          return newProgress
+        })
+      }, 50)
+      return () => clearInterval(timer)
+    }
+  }, [transitionState, router, selectedRepo])
+
   const fetchUserRepositories = async () => {
     try {
-      const response = await fetch('/api/saveRepo');
+      // Simulate loading for demo purposes
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      const response = await fetch("/api/saveRepo")
       if (response.ok) {
-        const data = await response.json();
-        setRepositories(data);
+        const data = await response.json()
+        setRepositories(data)
+      } else {
+        // Fallback to mock data
+        setRepositories(getMockRepositories())
       }
     } catch (error) {
-      console.error('Error fetching repositories:', error);
+      console.error("Error fetching repositories:", error)
+      // Fallback to mock data
+      setRepositories(getMockRepositories())
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
-  
-  if (status === 'loading' || (status === 'authenticated' && loading)) {
+  }
+
+ 
+
+  const handleSelectRepo = (repo) => {
+    setSelectedRepo(repo)
+
+    // Immediately save the repo in the background
+    saveRepoToDatabase(repo)
+
+    // Quick transition to configuration form
+    setTimeout(() => {
+      setTransitionState("configuring")
+    }, 300)
+  }
+
+  const saveRepoToDatabase = async (repo) => {
+    setSavingRepo(true)
+    try {
+      const response = await fetch("/api/saveRepo", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repoId: repo.id.toString(),
+          name: repo.name,
+          description: repo.description || "",
+          url: repo.html_url || repo.url || "",
+        }),
+      })
+
+      if (!response.ok) {
+        console.error("Failed to save repository")
+      }
+    } catch (error) {
+      console.error("Error saving repository:", error)
+    } finally {
+      setSavingRepo(false)
+    }
+  }
+
+  const handleConfigSubmit = async (e) => {
+    e?.preventDefault()
+    setTransitionState("redirecting")
+    setProgress(0)
+
+    // Save the configuration
+    try {
+      await fetch(`/api/repoConfig/${selectedRepo.id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          hasDocker,
+          dockerConfig: hasDocker ? dockerConfig : null,
+          rootDirectory: !hasDocker ? rootDirectory : null,
+          buildCommand: !hasDocker ? buildCommand : null,
+          runCommand: !hasDocker ? runCommand : null,
+          env: hasEnv ? envVars.filter((v) => v.key.trim() !== "") : [],
+        }),
+      })
+    } catch (error) {
+      console.error("Error saving configuration:", error)
+    }
+  }
+
+  const addEnvVar = () => {
+    setEnvVars([...envVars, { key: "", value: "" }])
+  }
+
+  const updateEnvVar = (index, field, value) => {
+    const updatedVars = [...envVars]
+    updatedVars[index][field] = value
+    setEnvVars(updatedVars)
+  }
+
+  const removeEnvVar = (index) => {
+    const updatedVars = [...envVars]
+    updatedVars.splice(index, 1)
+    setEnvVars(updatedVars)
+  }
+
+  const getLanguageColor = (language) => {
+    const colors = {
+      JavaScript: "bg-yellow-400",
+      TypeScript: "bg-blue-500",
+      Python: "bg-green-500",
+      Java: "bg-orange-500",
+      Ruby: "bg-red-500",
+      Go: "bg-cyan-500",
+      PHP: "bg-purple-500",
+      HTML: "bg-red-600",
+      CSS: "bg-pink-500",
+      "C#": "bg-green-600",
+      "C++": "bg-blue-700",
+    }
+    return colors[language] || "bg-gray-500"
+  }
+
+  const filteredRepositories = repositories.filter(
+    (repo) =>
+      repo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (repo.description && repo.description.toLowerCase().includes(searchTerm.toLowerCase())),
+  )
+
+  // Sort repositories based on selected option
+  const sortedRepositories = [...filteredRepositories].sort((a, b) => {
+    switch (sortOption) {
+      case "stars":
+        return (b.stargazers_count || 0) - (a.stargazers_count || 0)
+      case "forks":
+        return (b.forks_count || 0) - (a.forks_count || 0)
+      case "name":
+        return a.name.localeCompare(b.name)
+      case "activity":
+      default:
+        return new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
+    }
+  })
+
+  if (status === "loading" || (status === "authenticated" && loading)) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-  
-  if (!session) {
-    return null; // Will redirect via useEffect
-  }
-  
-  return (
-    <Container>
-    <div className="container mx-auto px-4 py-8">
-      <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-        <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
-          {session.user?.image && (
-            <Image
-              src={session.user.image}
-              alt={session.user.name || 'User'}
-              width={100}
-              height={100}
-              className="rounded-full"
-            />
-          )}
-          
-          <div>
-            <h1 className="text-2xl font-bold">{session.user?.name}</h1>
-            <p className="text-gray-600">@{session.user?.githubUsername || 'Unknown'}</p>
-            <p className="text-gray-600">{session.user?.email}</p>
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center">
+        <div className="relative w-24 h-24">
+          <div className="absolute inset-0 rounded-full border-t-2 border-blue-500 animate-spin"></div>
+          <div className="absolute inset-2 rounded-full border-r-2 border-purple-500 animate-spin animate-reverse"></div>
+          <div className="absolute inset-4 rounded-full border-b-2 border-teal-500 animate-spin animate-delay-500"></div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Sparkles className="h-8 w-8 text-blue-400 animate-pulse" />
           </div>
         </div>
+        <h3 className="mt-8 text-xl font-medium text-white animate-pulse">Loading your workspace</h3>
+        <p className="mt-2 text-gray-400">Preparing your development environment...</p>
       </div>
-      
-      <div className="mb-8">
-        
-        
-        {repositories.length > 0 ? (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {repositories.map((repo) => (
-              <div key={repo.id} className="bg-white rounded-lg shadow p-4 border border-gray-200">
-                <h3 className="font-semibold text-lg mb-2">{repo.name}</h3>
-                {repo.description && <p className="text-gray-600 mb-3 line-clamp-2">{repo.description}</p>}
-                <div className="flex justify-between items-center">
-                  <a 
-                    href={repo.html_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 text-sm"
-                  >
-                    View on GitHub
-                  </a>
-                  <Link 
-                    href={`/repository/${repo.id}`}
-                    className="bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm hover:bg-blue-200"
-                  >
-                    View Details
-                  </Link>
+    )
+  }
+
+  if (!session) {
+    return null // Will redirect via useEffect
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white pt-20">
+      <AnimatePresence mode="wait">
+        {transitionState === "browsing" && (
+          <motion.div
+            key="browsing"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.4 }}
+            className="flex flex-col items-center p-6"
+          >
+            {/* Header with user info */}
+            <div className="w-full max-w-7xl flex justify-between items-center mb-8">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium">
+                    {session?.user?.name?.charAt(0) || "U"}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-black"></div>
+                </div>
+                <div>
+                  <h2 className="text-lg font-medium text-white">Welcome back, {session?.user?.name || "User"}</h2>
+                  <p className="text-sm text-gray-400">Let's deploy something amazing today</p>
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-            </svg>
-            <h3 className="text-lg font-medium mb-2">No repositories selected yet</h3>
-            <p className="text-gray-600 mb-4">
-              Browse your GitHub repositories and select the ones you want to work with.
-            </p>
-            <Link 
-              href="/my-repositories" 
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded inline-block"
+
+              <div className="flex items-center gap-3">
+               
+              </div>
+            </div>
+
+            {/* Search and filters */}
+            <div className="w-full max-w-7xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+              <div className="relative w-full md:max-w-xl">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
+                <Input
+                  type="text"
+                  placeholder="Search repositories..."
+                  className="pl-10 pr-16 py-2 bg-gray-900/50 border-gray-800 text-gray-300 w-full rounded-lg focus:ring-2 focus:ring-blue-500/50 transition-all"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-1 text-xs text-gray-500 bg-gray-800/80 px-2 py-1 rounded">
+                  <span>⌘</span>
+                  <span>K</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="bg-gray-900/50 border-gray-800 text-gray-300 hover:bg-gray-800 hover:text-white flex items-center gap-2"
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                      Sort: {sortOption.charAt(0).toUpperCase() + sortOption.slice(1)}
+                      <ChevronDown className="h-4 w-4 ml-1" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="bg-gray-900 border-gray-800 text-gray-300">
+                    <DropdownMenuItem
+                      onClick={() => setSortOption("activity")}
+                      className="hover:bg-gray-800 hover:text-white cursor-pointer"
+                    >
+                      <Clock className="h-4 w-4 mr-2" /> Activity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setSortOption("stars")}
+                      className="hover:bg-gray-800 hover:text-white cursor-pointer"
+                    >
+                      <Star className="h-4 w-4 mr-2" /> Stars
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setSortOption("forks")}
+                      className="hover:bg-gray-800 hover:text-white cursor-pointer"
+                    >
+                      <GitFork className="h-4 w-4 mr-2" /> Forks
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setSortOption("name")}
+                      className="hover:bg-gray-800 hover:text-white cursor-pointer"
+                    >
+                      <Filter className="h-4 w-4 mr-2" /> Name
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <div className="flex border border-gray-800 rounded-lg overflow-hidden">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className={`px-3 py-2 h-10 ${
+                            viewMode === "grid"
+                              ? "bg-gray-800 text-white"
+                              : "bg-transparent text-gray-500 hover:text-white hover:bg-gray-800/50"
+                          }`}
+                          onClick={() => setViewMode("grid")}
+                        >
+                          <Grid3X3 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="bg-gray-900 text-white border-gray-800">
+                        Grid view
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className={`px-3 py-2 h-10 ${
+                            viewMode === "list"
+                              ? "bg-gray-800 text-white"
+                              : "bg-transparent text-gray-500 hover:text-white hover:bg-gray-800/50"
+                          }`}
+                          onClick={() => setViewMode("list")}
+                        >
+                          <List className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="bg-gray-900 text-white border-gray-800">
+                        List view
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
+            </div>
+
+            {/* Repository Cards */}
+            <div
+              className={`w-full max-w-7xl min-h-[800px] ${
+                viewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" : "flex flex-col gap-4"
+              }`}
             >
-              Browse Repositories
-            </Link>
-          </div>
+              {sortedRepositories.length === 0 ? (
+                <div className="col-span-full text-center py-12 bg-gray-900/30 rounded-xl border border-gray-800 backdrop-blur-sm">
+                  <Cloud className="h-16 w-16 text-gray-700 mx-auto mb-4" />
+                  <h3 className="text-xl font-bold text-gray-300 mb-2">No repositories found</h3>
+                  <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                    {searchTerm
+                      ? `No results for "${searchTerm}". Try a different search term.`
+                      : "Create a new repository or connect an existing one to get started."}
+                  </p>
+                  <Button className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white border-0 flex items-center gap-2 mx-auto">
+                    <Plus className="h-4 w-4" />
+                    Create Repository
+                  </Button>
+                </div>
+              ) : (
+                sortedRepositories.map((repo) => (
+                  <motion.div
+                    key={repo.id}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <Card
+                      className={`relative overflow-hidden transition-all duration-300 border rounded-xl shadow-lg
+                        ${viewMode === "list" ? "flex justify-between text-left items-center w-full" : ""}
+                        ${
+                          selectedRepo && selectedRepo.id === repo.id
+                            ? "border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)] ring-2 ring-blue-400/30"
+                            : "border-gray-800/50 hover:border-blue-500/50 hover:shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                        }
+                        bg-gray-900/40 backdrop-blur-sm`}
+                    >
+                      {/* Gradient overlay at the top */}
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
+
+                      <CardContent className={`p-6 ${viewMode === "list" ? "flex-1" : ""}`}>
+                        <div className="flex flex-col justify-center items-start w-full h-full">
+                          <div className="flex justify-between w-full mb-4">
+                            <div className="flex-1">
+                              <h3 className="text-lg font-semibold text-white mb-1 flex items-center">
+                                {repo.name}
+                                {repo.private && (
+                                  <Badge className="ml-2 bg-gray-800 text-gray-300 text-xs">Private</Badge>
+                                )}
+                              </h3>
+                             
+                            </div>
+                            {viewMode === "list" && (
+                              <Button
+                                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white border-0"
+                                onClick={() => handleSelectRepo(repo)}
+                              >
+                                Select
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="mt-auto flex flex-wrap items-center text-xs text-gray-400 space-x-4">
+                            {repo.language && (
+                              <div className="flex items-center">
+                                <div className={`w-2 h-2 rounded-full mr-1 ${getLanguageColor(repo.language)}`}></div>
+                                <span>{repo.language}</span>
+                              </div>
+                            )}
+                            {repo.stargazers_count !== undefined && (
+                              <div className="flex items-center">
+                                <Star className="h-3 w-3 mr-1" />
+                                <span>{repo.stargazers_count}</span>
+                              </div>
+                            )}
+                            {repo.forks_count !== undefined && (
+                              <div className="flex items-center">
+                                <GitFork className="h-3 w-3 mr-1" />
+                                <span>{repo.forks_count}</span>
+                              </div>
+                            )}
+                            {repo.updated_at && (
+                              <div className="flex items-center">
+                                <Clock className="h-3 w-3 mr-1" />
+                                <span>
+                                  {new Date(repo.updated_at).toLocaleDateString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                  })}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+
+                      {viewMode !== "list" && (
+                        <CardFooter className="p-0 border-t border-gray-800/50">
+                          <Button
+                            className="w-full rounded-none py-3 bg-gray-800/50 hover:bg-gradient-to-r from-blue-600 to-indigo-600 text-gray-300 hover:text-white transition-all duration-300"
+                            onClick={() => handleSelectRepo(repo)}
+                          >
+                            Select Repository
+                          </Button>
+                        </CardFooter>
+                      )}
+                    </Card>
+                  </motion.div>
+                ))
+              )}
+            </div>
+          </motion.div>
         )}
-      </div>
+
+        {transitionState === "configuring" && (
+          <motion.div
+            key="configuring"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.4 }}
+            className="flex flex-col items-center justify-center p-6"
+          >
+            <div className="w-full max-w-2xl bg-gradient-to-br from-gray-900/80 to-gray-950/80 border border-gray-800/80 rounded-xl p-8 shadow-xl backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+                    Configure Deployment
+                  </h2>
+                  <p className="text-gray-400 text-sm mt-1">Set up your project for deployment</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-blue-400 text-sm font-medium">Step 1 of 2</span>
+                  <div className="w-20 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div className="w-1/2 h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"></div>
+                  </div>
+                </div>
+              </div>
+
+              {selectedRepo && (
+                <div className="mb-8">
+                  <Card className="border-blue-500/30 bg-gradient-to-br from-gray-900/60 to-gray-950/60 p-4 rounded-xl overflow-hidden relative">
+                    {/* Pulsing glow effect */}
+                    <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl opacity-20 blur-xl animate-pulse"></div>
+
+                    <div className="relative flex items-center">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <Github className="h-5 w-5 text-gray-400" />
+                          <h3 className="text-lg font-semibold text-white flex items-center">
+                            {selectedRepo.name}
+                            {selectedRepo.private && (
+                              <Badge className="ml-2 bg-gray-800 text-gray-300 text-xs">Private</Badge>
+                            )}
+                          </h3>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-xs text-gray-400 mt-2">
+                          {selectedRepo.language && (
+                            <div className="flex items-center">
+                              <div
+                                className={`w-2 h-2 rounded-full mr-1 ${getLanguageColor(selectedRepo.language)}`}
+                              ></div>
+                              <span>{selectedRepo.language}</span>
+                            </div>
+                          )}
+                          {selectedRepo.stargazers_count !== undefined && (
+                            <div className="flex items-center">
+                              <Star className="h-3 w-3 mr-1" />
+                              <span>{selectedRepo.stargazers_count}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+              )}
+
+              <form onSubmit={handleConfigSubmit} className="space-y-8">
+                {/* Docker Configuration */}
+                <div className="space-y-4 bg-gray-900/30 p-5 rounded-lg border border-gray-800/50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="docker-toggle" className="text-white font-medium flex items-center gap-2">
+                        <div className="p-1.5 bg-blue-500/10 rounded-md">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="text-blue-400"
+                          >
+                            <path d="M22 12.5" strokeLinejoin="round" className="text-blue-400" />
+                            <path d="M22 12.5a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 12.5v-10A2.5 2.5 0 0 1 4.5 0h15A2.5 2.5 0 0 1 22 2.5v10z" />
+                            <path d="M7 16.5v-1" />
+                            <path d="M12 16.5v-1" />
+                            <path d="M17 16.5v-1" />
+                          </svg>
+                        </div>
+                        Docker Configuration
+                      </Label>
+                      <p className="text-gray-400 text-xs mt-1 ml-9">Use a custom Docker image for your deployment</p>
+                    </div>
+                    <Switch
+                      id="docker-toggle"
+                      checked={hasDocker}
+                      onCheckedChange={setHasDocker}
+                      className="data-[state=checked]:bg-blue-600"
+                    />
+                  </div>
+
+                  {hasDocker ? (
+                    <div className="mt-4 space-y-2">
+                      <Label htmlFor="docker-config" className="text-white">
+                        Docker Configuration
+                      </Label>
+                      <div className="relative">
+                        <Textarea
+                          id="docker-config"
+                          placeholder="# Paste your Dockerfile content here..."
+                          className="min-h-32 bg-gray-950 border-gray-800 text-gray-300 font-mono text-sm rounded-lg focus:ring-2 focus:ring-blue-500/50 transition-all"
+                          value={dockerConfig}
+                          onChange={(e) => setDockerConfig(e.target.value)}
+                        />
+                        <div className="absolute top-2 right-2 px-2 py-1 bg-gray-800 text-xs text-gray-400 rounded">
+                          Dockerfile
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 mt-4">
+                      <div>
+                        <Label htmlFor="root-dir" className="text-white">
+                          Root Directory
+                        </Label>
+                        <Input
+                          id="root-dir"
+                          placeholder="/"
+                          className="bg-gray-950 border-gray-800 text-gray-300 mt-1 focus:ring-2 focus:ring-blue-500/50 transition-all"
+                          value={rootDirectory}
+                          onChange={(e) => setRootDirectory(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="build-cmd" className="text-white">
+                          Build Command
+                        </Label>
+                        <Input
+                          id="build-cmd"
+                          placeholder="npm run build"
+                          className="bg-gray-950 border-gray-800 text-gray-300 mt-1 focus:ring-2 focus:ring-blue-500/50 transition-all"
+                          value={buildCommand}
+                          onChange={(e) => setBuildCommand(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="run-cmd" className="text-white">
+                          Run Command
+                        </Label>
+                        <Input
+                          id="run-cmd"
+                          placeholder="npm start"
+                          className="bg-gray-950 border-gray-800 text-gray-300 mt-1 focus:ring-2 focus:ring-blue-500/50 transition-all"
+                          value={runCommand}
+                          onChange={(e) => setRunCommand(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Environment Variables */}
+                <div className="space-y-4 bg-gray-900/30 p-5 rounded-lg border border-gray-800/50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="env-toggle" className="text-white font-medium flex items-center gap-2">
+                        <div className="p-1.5 bg-purple-500/10 rounded-md">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="text-purple-400"
+                          >
+                            <path d="M20 5H4l8 8 8-8Z" />
+                            <path d="m6 10 6 6 6-6" />
+                          </svg>
+                        </div>
+                        Environment Variables
+                      </Label>
+                      <p className="text-gray-400 text-xs mt-1 ml-9">Add environment variables for your application</p>
+                    </div>
+                    <Switch
+                      id="env-toggle"
+                      checked={hasEnv}
+                      onCheckedChange={setHasEnv}
+                      className="data-[state=checked]:bg-purple-600"
+                    />
+                  </div>
+
+                  {hasEnv && (
+                    <div className="mt-4 space-y-3">
+                      <AnimatePresence>
+                        {envVars.map((envVar, index) => (
+                          <motion.div
+                            key={index}
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="flex gap-2 items-center"
+                          >
+                            <Input
+                              placeholder="KEY"
+                              className="bg-gray-950 border-gray-800 text-gray-300 flex-1 focus:ring-2 focus:ring-purple-500/50 transition-all"
+                              value={envVar.key}
+                              onChange={(e) => updateEnvVar(index, "key", e.target.value)}
+                            />
+                            <Input
+                              placeholder="VALUE"
+                              className="bg-gray-950 border-gray-800 text-gray-300 flex-1 focus:ring-2 focus:ring-purple-500/50 transition-all"
+                              value={envVar.value}
+                              onChange={(e) => updateEnvVar(index, "value", e.target.value)}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeEnvVar(index)}
+                              className="text-gray-400 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addEnvVar}
+                        className="bg-gray-900 border-gray-800 text-gray-300 mt-2 hover:bg-purple-500/10 hover:text-purple-400 hover:border-purple-500/50"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Variable
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-between pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800"
+                    onClick={() => setTransitionState("browsing")}
+                  >
+                    Back
+                  </Button>
+
+                  <Button
+                    type="submit"
+                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white border-0 flex items-center gap-2"
+                  >
+                    Continue
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </motion.div>
+        )}
+
+        {transitionState === "redirecting" && (
+          <motion.div
+            key="redirecting"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="flex flex-col items-center justify-center p-6 min-h-screen"
+          >
+            <div className="w-full max-w-2xl bg-gradient-to-br from-gray-900/80 to-gray-950/80 border border-gray-800/80 rounded-xl p-8 shadow-xl backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+                    Setting Up Repository
+                  </h2>
+                  <p className="text-gray-400 text-sm mt-1">Preparing your deployment environment</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-blue-400 text-sm font-medium">Step 2 of 2</span>
+                  <div className="w-20 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div className="w-full h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center justify-center py-8">
+                <div className="relative w-20 h-20 mb-6">
+                  <div className="absolute inset-0 rounded-full border-t-2 border-blue-500 animate-spin"></div>
+                  <div className="absolute inset-2 rounded-full border-r-2 border-purple-500 animate-spin animate-reverse"></div>
+                  <div className="absolute inset-4 rounded-full border-b-2 border-teal-500 animate-spin animate-delay-500"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Sparkles className="h-8 w-8 text-blue-400 animate-pulse" />
+                  </div>
+                </div>
+
+                <div className="w-full max-w-md">
+                  <Progress value={progress} className="h-2 mb-2" />
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Analyzing repository</span>
+                    <span>{progress}%</span>
+                  </div>
+                </div>
+
+                <div className="mt-8 text-center">
+                  <p className="text-lg font-medium text-white mb-2">Preparing your workspace</p>
+                  <p className="text-gray-400 text-sm max-w-md">
+                    We're analyzing your code, setting up your repository, and configuring your deployment environment.
+                    You'll be redirected shortly...
+                  </p>
+                </div>
+
+                <div className="mt-8 w-full max-w-md">
+                  <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                    <span>Setting up build environment</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
+                    <span>Configuring deployment settings</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <Loader2 className="h-4 w-4 animate-spin text-teal-400" />
+                    <span>Preparing development workspace</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
-    </Container>
-  );
+  )
 }

@@ -68,6 +68,22 @@ model Repository {
   updatedAt   DateTime @updatedAt
   
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  config      RepositoryConfig?
   
   @@unique([userId, repoId])
+}
+
+model RepositoryConfig {
+  id                   String    @id @default(cuid())
+  repositoryId         String    @unique
+  hasDocker            Boolean   @default(false)
+  dockerConfig         String?
+  rootDirectory        String?
+  buildCommand         String?
+  runCommand           String?
+  environmentVariables Json?     // Store env vars as JSON array of key-value pairs
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  
+  repository           Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
 }
