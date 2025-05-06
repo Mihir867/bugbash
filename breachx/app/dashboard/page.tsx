@@ -41,7 +41,7 @@ export default function Dashboard() {
   const router = useRouter()
   const [repositories, setRepositories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedRepo, setSelectedRepo] = useState(null)
+  const [selectedRepo, setSelectedRepo] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState("grid")
   const [searchTerm, setSearchTerm] = useState("")
   const [transitionState, setTransitionState] = useState("browsing") // browsing, configuring, redirecting
@@ -112,7 +112,7 @@ export default function Dashboard() {
 
  
 
-  const handleSelectRepo = (repo) => {
+  const handleSelectRepo = (repo:any) => {
     setSelectedRepo(repo)
 
     // Immediately save the repo in the background
@@ -150,7 +150,7 @@ export default function Dashboard() {
     }
   }
 
-  const handleConfigSubmit = async (e) => {
+  const handleConfigSubmit = async (e:any) => {
     e?.preventDefault()
     setTransitionState("redirecting")
     setProgress(0)

@@ -1,4 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 'use client';
 
 import { useSession } from 'next-auth/react';
@@ -45,7 +47,7 @@ export default function MyRepositories() {
     }
   };
   
-  const filteredRepositories = repositories.filter(repo => {
+  const filteredRepositories = repositories.filter((repo:any) => {
     const matchesSearch = repo.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (repo.description && repo.description.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesLanguage = !selectedLanguage || repo.language === selectedLanguage;
@@ -103,7 +105,7 @@ export default function MyRepositories() {
       
       {filteredRepositories.length > 0 ? (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredRepositories.map(repo => (
+          {filteredRepositories.map((repo:any) => (
             <RepositoryCard 
               key={repo.id} 
               repository={repo} 
