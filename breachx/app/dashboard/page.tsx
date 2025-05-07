@@ -22,6 +22,12 @@ import {
   Filter,
   SlidersHorizontal,
   Sparkles,
+  Check,
+  FileCode,
+  Code,
+  Database,
+  Terminal,
+  Key,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -35,6 +41,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { motion, AnimatePresence } from "framer-motion"
 import { Progress } from "@/components/ui/progress"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { cn } from "@/lib/utils"
+
 
 export default function Dashboard() {
   const { data: session, status } = useSession()
@@ -218,7 +227,7 @@ export default function Dashboard() {
   )
 
   // Sort repositories based on selected option
-  const sortedRepositories = [...filteredRepositories].sort(({a, b}:any) => {
+  const sortedRepositories = [...filteredRepositories].sort((a, b) => {
     switch (sortOption) {
       case "stars":
         return (b.stargazers_count || 0) - (a.stargazers_count || 0)
@@ -231,6 +240,43 @@ export default function Dashboard() {
         return new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
     }
   })
+
+
+ 
+
+  // Form sections completion tracking
+  const [completedSections, setCompletedSections] = useState<string[]>([])
+
+  // Form sections open/closed state
+  const [openSections, setOpenSections] = useState<string[]>(["docker"])
+
+  const toggleSection = (section: string) => {
+    setOpenSections((prev) => (prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]))
+  }
+
+  
+  const markSectionComplete = (section: string) => {
+    if (!completedSections.includes(section)) {
+      setCompletedSections([...completedSections, section])
+    }
+  }
+
+
+
+  // Check if Docker section is valid
+  const isDockerSectionValid = () => {
+    if (hasDocker) {
+      return dockerConfig.trim().length > 0
+    } else {
+      return rootDirectory.trim().length > 0 && buildCommand.trim().length > 0 && runCommand.trim().length > 0
+    }
+  }
+
+  // Check if Environment Variables section is valid
+  const isEnvSectionValid = () => {
+    if (!hasEnv) return true
+    return envVars.length > 0 && envVars.every((v) => v.key.trim() && v.value.trim())
+  }
 
   if (status === "loading" || (status === "authenticated" && loading)) {
     return (
@@ -568,210 +614,492 @@ export default function Dashboard() {
                 </div>
               )}
 
-              <form onSubmit={handleConfigSubmit} className="space-y-8">
-                {/* Docker Configuration */}
-                <div className="space-y-4 bg-gray-900/30 p-5 rounded-lg border border-gray-800/50">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="docker-toggle" className="text-white font-medium flex items-center gap-2">
-                        <div className="p-1.5 bg-blue-500/10 rounded-md">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="text-blue-400"
-                          >
-                            <path d="M22 12.5" strokeLinejoin="round" className="text-blue-400" />
-                            <path d="M22 12.5a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 12.5v-10A2.5 2.5 0 0 1 4.5 0h15A2.5 2.5 0 0 1 22 2.5v10z" />
-                            <path d="M7 16.5v-1" />
-                            <path d="M12 16.5v-1" />
-                            <path d="M17 16.5v-1" />
-                          </svg>
-                        </div>
-                        Docker Configuration
-                      </Label>
-                      <p className="text-gray-400 text-xs mt-1 ml-9">Use a custom Docker image for your deployment</p>
-                    </div>
-                    <Switch
-                      id="docker-toggle"
-                      checked={hasDocker}
-                      onCheckedChange={setHasDocker}
-                      className="data-[state=checked]:bg-blue-600"
-                    />
+<form onSubmit={handleConfigSubmit} className="space-y-6">
+        {/* Docker Configuration */}
+        <Collapsible
+          open={openSections.includes("docker")}
+          onOpenChange={() => toggleSection("docker")}
+          className={cn(
+            "rounded-lg border transition-all duration-200",
+            isDockerSectionValid() && completedSections.includes("docker")
+              ? "border-green-500/30 bg-green-500/5"
+              : "border-gray-800/50 bg-gray-900/30",
+          )}
+        >
+          <div className="p-5">
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      "p-2 rounded-md transition-colors",
+                      isDockerSectionValid() && completedSections.includes("docker")
+                        ? "bg-green-500/20 text-green-400"
+                        : "bg-blue-500/10 text-blue-400",
+                    )}
+                  >
+                    {isDockerSectionValid() && completedSections.includes("docker") ? (
+                      <Check className="h-5 w-5" />
+                    ) : (
+                      <FileCode className="h-5 w-5" />
+                    )}
                   </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-white font-medium">Docker Configuration</h3>
+                      {isDockerSectionValid() && completedSections.includes("docker") && (
+                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
+                          Completed
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-gray-400 text-sm mt-1">Use a custom Docker image for your deployment</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="docker-toggle"
+                    checked={hasDocker}
+                    onCheckedChange={(checked) => {
+                      setHasDocker(checked)
+                      if (completedSections.includes("docker")) {
+                        setCompletedSections(completedSections.filter((s) => s !== "docker"))
+                      }
+                    }}
+                    className="data-[state=checked]:bg-blue-600"
+                  />
+                  <ChevronDown
+                    className={cn(
+                      "h-5 w-5 text-gray-400 transition-transform duration-200",
+                      openSections.includes("docker") ? "transform rotate-180" : "",
+                    )}
+                  />
+                </div>
+              </div>
+            </CollapsibleTrigger>
+          </div>
 
-                  {hasDocker ? (
-                    <div className="mt-4 space-y-2">
+          <CollapsibleContent>
+            <div className="px-5 pb-5 pt-2 space-y-4">
+              <div className="h-px bg-gray-800/50 -mx-5 mb-4"></div>
+
+              <AnimatePresence mode="wait">
+                {hasDocker ? (
+                  <motion.div
+                    key="docker-config"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="space-y-3"
+                  >
+                    <div className="flex justify-between items-center">
                       <Label htmlFor="docker-config" className="text-white">
-                        Docker Configuration
+                        Dockerfile Content
                       </Label>
-                      <div className="relative">
-                        <Textarea
-                          id="docker-config"
-                          placeholder="# Paste your Dockerfile content here..."
-                          className="min-h-32 bg-gray-950 border-gray-800 text-gray-300 font-mono text-sm rounded-lg focus:ring-2 focus:ring-blue-500/50 transition-all"
-                          value={dockerConfig}
-                          onChange={(e) => setDockerConfig(e.target.value)}
-                        />
-                        <div className="absolute top-2 right-2 px-2 py-1 bg-gray-800 text-xs text-gray-400 rounded">
-                          Dockerfile
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs text-gray-400 hover:text-blue-400"
+                              onClick={() => {
+                                setDockerConfig(
+                                  `FROM node:18-alpine\n\nWORKDIR /app\n\nCOPY package*.json ./\nRUN npm install\n\nCOPY . .\n\nRUN npm run build\n\nEXPOSE 3000\n\nCMD ["npm", "start"]`,
+                                )
+                              }}
+                            >
+                              <Code className="h-3.5 w-3.5 mr-1" />
+                              Insert template
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Insert a basic Node.js Dockerfile template</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <div className="relative">
+                      <Textarea
+                        id="docker-config"
+                        placeholder="# Paste your Dockerfile content here..."
+                        className="min-h-40 bg-gray-950 border-gray-800 text-gray-300 font-mono text-sm rounded-lg focus:ring-2 focus:ring-blue-500/50 transition-all resize-y"
+                        value={dockerConfig}
+                        onChange={(e) => {
+                          setDockerConfig(e.target.value)
+                          if (e.target.value.trim().length > 0) {
+                            markSectionComplete("docker")
+                          }
+                        }}
+                      />
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-gray-800 text-xs text-gray-400 rounded">
+                        Dockerfile
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="standard-config"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="space-y-4"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="root-dir" className="text-white">
+                            Root Directory
+                          </Label>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-gray-500 hover:text-gray-400"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="h-3 w-3"
+                                  >
+                                    <circle cx="12" cy="12" r="10" />
+                                    <path d="M12 16v-4" />
+                                    <path d="M12 8h.01" />
+                                  </svg>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                <p className="text-xs max-w-xs">The directory where your application code is located</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <div className="relative">
+                          <Database className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+                          <Input
+                            id="root-dir"
+                            placeholder="/"
+                            className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
+                            value={rootDirectory}
+                            onChange={(e) => {
+                              setRootDirectory(e.target.value)
+                              if (
+                                e.target.value.trim().length > 0 &&
+                                buildCommand.trim().length > 0 &&
+                                runCommand.trim().length > 0
+                              ) {
+                                markSectionComplete("docker")
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="build-cmd" className="text-white">
+                            Build Command
+                          </Label>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-gray-500 hover:text-gray-400"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="h-3 w-3"
+                                  >
+                                    <circle cx="12" cy="12" r="10" />
+                                    <path d="M12 16v-4" />
+                                    <path d="M12 8h.01" />
+                                  </svg>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                <p className="text-xs max-w-xs">Command to build your application</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <div className="relative">
+                          <Terminal className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+                          <Input
+                            id="build-cmd"
+                            placeholder="npm run build"
+                            className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
+                            value={buildCommand}
+                            onChange={(e) => {
+                              setBuildCommand(e.target.value)
+                              if (
+                                rootDirectory.trim().length > 0 &&
+                                e.target.value.trim().length > 0 &&
+                                runCommand.trim().length > 0
+                              ) {
+                                markSectionComplete("docker")
+                              }
+                            }}
+                          />
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="space-y-4 mt-4">
-                      <div>
-                        <Label htmlFor="root-dir" className="text-white">
-                          Root Directory
-                        </Label>
-                        <Input
-                          id="root-dir"
-                          placeholder="/"
-                          className="bg-gray-950 border-gray-800 text-gray-300 mt-1 focus:ring-2 focus:ring-blue-500/50 transition-all"
-                          value={rootDirectory}
-                          onChange={(e) => setRootDirectory(e.target.value)}
-                        />
-                      </div>
 
-                      <div>
-                        <Label htmlFor="build-cmd" className="text-white">
-                          Build Command
-                        </Label>
-                        <Input
-                          id="build-cmd"
-                          placeholder="npm run build"
-                          className="bg-gray-950 border-gray-800 text-gray-300 mt-1 focus:ring-2 focus:ring-blue-500/50 transition-all"
-                          value={buildCommand}
-                          onChange={(e) => setBuildCommand(e.target.value)}
-                        />
-                      </div>
-
-                      <div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
                         <Label htmlFor="run-cmd" className="text-white">
                           Run Command
                         </Label>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-5 w-5 text-gray-500 hover:text-gray-400">
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-3 w-3"
+                                >
+                                  <circle cx="12" cy="12" r="10" />
+                                  <path d="M12 16v-4" />
+                                  <path d="M12 8h.01" />
+                                </svg>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">
+                              <p className="text-xs max-w-xs">Command to start your application</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <div className="relative">
+                        <Terminal className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
                         <Input
                           id="run-cmd"
                           placeholder="npm start"
-                          className="bg-gray-950 border-gray-800 text-gray-300 mt-1 focus:ring-2 focus:ring-blue-500/50 transition-all"
+                          className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
                           value={runCommand}
-                          onChange={(e) => setRunCommand(e.target.value)}
+                          onChange={(e) => {
+                            setRunCommand(e.target.value)
+                            if (
+                              rootDirectory.trim().length > 0 &&
+                              buildCommand.trim().length > 0 &&
+                              e.target.value.trim().length > 0
+                            ) {
+                              markSectionComplete("docker")
+                            }
+                          }}
                         />
                       </div>
                     </div>
-                  )}
-                </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
-                {/* Environment Variables */}
-                <div className="space-y-4 bg-gray-900/30 p-5 rounded-lg border border-gray-800/50">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="env-toggle" className="text-white font-medium flex items-center gap-2">
-                        <div className="p-1.5 bg-purple-500/10 rounded-md">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="text-purple-400"
-                          >
-                            <path d="M20 5H4l8 8 8-8Z" />
-                            <path d="m6 10 6 6 6-6" />
-                          </svg>
-                        </div>
-                        Environment Variables
-                      </Label>
-                      <p className="text-gray-400 text-xs mt-1 ml-9">Add environment variables for your application</p>
+        {/* Environment Variables */}
+        <Collapsible
+          open={openSections.includes("env")}
+          onOpenChange={() => toggleSection("env")}
+          className={cn(
+            "rounded-lg border transition-all duration-200",
+            isEnvSectionValid() && completedSections.includes("env")
+              ? "border-green-500/30 bg-green-500/5"
+              : "border-gray-800/50 bg-gray-900/30",
+          )}
+        >
+          <div className="p-5">
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      "p-2 rounded-md transition-colors",
+                      isEnvSectionValid() && completedSections.includes("env")
+                        ? "bg-green-500/20 text-green-400"
+                        : "bg-purple-500/10 text-purple-400",
+                    )}
+                  >
+                    {isEnvSectionValid() && completedSections.includes("env") ? (
+                      <Check className="h-5 w-5" />
+                    ) : (
+                      <Key className="h-5 w-5" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-white font-medium">Environment Variables</h3>
+                      {isEnvSectionValid() && completedSections.includes("env") && (
+                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
+                          Completed
+                        </span>
+                      )}
                     </div>
-                    <Switch
-                      id="env-toggle"
-                      checked={hasEnv}
-                      onCheckedChange={setHasEnv}
-                      className="data-[state=checked]:bg-purple-600"
-                    />
+                    <p className="text-gray-400 text-sm mt-1">Add environment variables for your application</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="env-toggle"
+                    checked={hasEnv}
+                    onCheckedChange={(checked) => {
+                      setHasEnv(checked)
+                      if (!checked) {
+                        markSectionComplete("env")
+                      } else if (completedSections.includes("env")) {
+                        setCompletedSections(completedSections.filter((s) => s !== "env"))
+                      }
+                    }}
+                    className="data-[state=checked]:bg-purple-600"
+                  />
+                  <ChevronDown
+                    className={cn(
+                      "h-5 w-5 text-gray-400 transition-transform duration-200",
+                      openSections.includes("env") ? "transform rotate-180" : "",
+                    )}
+                  />
+                </div>
+              </div>
+            </CollapsibleTrigger>
+          </div>
+
+          <CollapsibleContent>
+            <div className="px-5 pb-5 pt-2 space-y-4">
+              <div className="h-px bg-gray-800/50 -mx-5 mb-4"></div>
+
+              {hasEnv && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 px-1">
+                    <div>KEY</div>
+                    <div>VALUE</div>
                   </div>
 
-                  {hasEnv && (
-                    <div className="mt-4 space-y-3">
-                      <AnimatePresence>
-                        {envVars.map((envVar, index) => (
-                          <motion.div
-                            key={index}
-                            initial={{ opacity: 0, y: -10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="flex gap-2 items-center"
-                          >
-                            <Input
-                              placeholder="KEY"
-                              className="bg-gray-950 border-gray-800 text-gray-300 flex-1 focus:ring-2 focus:ring-purple-500/50 transition-all"
-                              value={envVar.key}
-                              onChange={(e) => updateEnvVar(index, "key", e.target.value)}
-                            />
-                            <Input
-                              placeholder="VALUE"
-                              className="bg-gray-950 border-gray-800 text-gray-300 flex-1 focus:ring-2 focus:ring-purple-500/50 transition-all"
-                              value={envVar.value}
-                              onChange={(e) => updateEnvVar(index, "value", e.target.value)}
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeEnvVar(index)}
-                              className="text-gray-400 hover:text-red-400 hover:bg-red-500/10"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={addEnvVar}
-                        className="bg-gray-900 border-gray-800 text-gray-300 mt-2 hover:bg-purple-500/10 hover:text-purple-400 hover:border-purple-500/50"
+                  <AnimatePresence>
+                    {envVars.map((envVar, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, height: 0, marginTop: 0, overflow: "hidden" }}
+                        transition={{ duration: 0.2 }}
+                        className="flex gap-2 items-center group"
                       >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Variable
-                      </Button>
-                    </div>
-                  )}
-                </div>
+                        <div className="relative flex-1">
+                          <Input
+                            placeholder="KEY"
+                            className="bg-gray-950 border-gray-800 text-gray-300 focus:ring-2 focus:ring-purple-500/50 transition-all pr-8"
+                            value={envVar.key}
+                            onChange={(e) => {
+                              updateEnvVar(index, "key", e.target.value)
+                              if (envVars.every((v) => v.key.trim() && v.value.trim())) {
+                                markSectionComplete("env")
+                              } else if (completedSections.includes("env")) {
+                                setCompletedSections(completedSections.filter((s) => s !== "env"))
+                              }
+                            }}
+                          />
+                          {envVar.key && (
+                            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-500">
+                              {envVar.key.length}
+                            </div>
+                          )}
+                        </div>
+                        <div className="relative flex-1">
+                          <Input
+                            placeholder="VALUE"
+                            className="bg-gray-950 border-gray-800 text-gray-300 focus:ring-2 focus:ring-purple-500/50 transition-all pr-8"
+                            value={envVar.value}
+                            onChange={(e) => {
+                              updateEnvVar(index, "value", e.target.value)
+                              if (envVars.every((v) => v.key.trim() && v.value.trim())) {
+                                markSectionComplete("env")
+                              } else if (completedSections.includes("env")) {
+                                setCompletedSections(completedSections.filter((s) => s !== "env"))
+                              }
+                            }}
+                          />
+                          {envVar.value && (
+                            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-500">
+                              {envVar.value.length}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeEnvVar(index)}
+                          className="text-gray-600 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
 
-                <div className="flex justify-between pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800"
-                    onClick={() => setTransitionState("browsing")}
-                  >
-                    Back
-                  </Button>
-
-                  <Button
-                    type="submit"
-                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white border-0 flex items-center gap-2"
-                  >
-                    Continue
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addEnvVar}
+                      className="bg-gray-900 border-gray-800 text-gray-300 mt-2 hover:bg-purple-500/10 hover:text-purple-400 hover:border-purple-500/50 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-2" />
+                      Add Variable
+                    </Button>
+                  </motion.div>
                 </div>
-              </form>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
+        {/* Form Actions */}
+        <div className="flex justify-between pt-6">
+          <Button
+            type="button"
+            variant="outline"
+            className="bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            Back
+          </Button>
+
+          <Button
+            type="submit"
+            disabled={!(isDockerSectionValid() && isEnvSectionValid())}
+            className={cn(
+              "transition-all duration-300 flex items-center gap-2",
+              isDockerSectionValid() && isEnvSectionValid()
+                ? "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border-0"
+                : "bg-gray-800 text-gray-400 cursor-not-allowed",
+            )}
+          >
+            Continue
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </form>
             </div>
           </motion.div>
         )}

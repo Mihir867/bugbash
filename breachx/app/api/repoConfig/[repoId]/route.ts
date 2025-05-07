@@ -13,7 +13,7 @@ export async function POST(req: NextRequest, { params }: { params: { repoId: str
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
   
-    const repoId = params.repoId;
+    const repoId = await params.repoId;
     const body = await req.json();
   
     const {
@@ -25,7 +25,6 @@ export async function POST(req: NextRequest, { params }: { params: { repoId: str
       env,
     } = body;
 
-    console.log(hasDocker, dockerConfig, rootDirectory, buildCommand, runCommand, env, "lessg");
   
     try {
       const repository = await prisma.repository.findFirst({
@@ -95,20 +94,17 @@ export async function GET(req: NextRequest, { params }: { params: { repoId: stri
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
 
-  const repoId = params.id;
+  const repoIdParam = await params.repoId;
 
-  if (!repoId) {
+  if (!repoIdParam) {
     return new Response(JSON.stringify({ error: "Repository ID is required" }), { status: 400 });
   }
 
   try {
+    // Use findFirst instead of findUnique because repoId is not unique
     const repository = await prisma.repository.findFirst({
       where: {
-        repoId: repoId,
-        userId: session.user?.id,
-      },
-      include: {
-        config: true,
+        repoId: repoIdParam,
       },
     });
 
@@ -116,7 +112,20 @@ export async function GET(req: NextRequest, { params }: { params: { repoId: stri
       return new Response(JSON.stringify({ error: "Repository not found" }), { status: 404 });
     }
 
-    return new Response(JSON.stringify(repository), { status: 200 });
+    const repositoryConfig = await prisma.repositoryConfig.findUnique({
+      where: {
+        repositoryId: repository.id,
+      },
+      include: {
+        repository: true,
+      },
+    });
+
+    if (!repositoryConfig) {
+      return new Response(JSON.stringify({ error: "RepositoryConfig not found" }), { status: 404 });
+    }
+
+    return new Response(JSON.stringify(repositoryConfig), { status: 200 });
   } catch (error) {
     console.error("Error fetching repository configuration:", error);
     return new Response(JSON.stringify({ error: "Internal Server Error" }), { status: 500 });

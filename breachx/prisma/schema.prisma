@@ -57,6 +57,28 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model RepositoryConfig {
+  id                   String    @id @default(cuid())
+  repositoryId         String    @unique
+  hasDocker            Boolean   @default(false)
+  dockerConfig         String?
+  rootDirectory        String?
+  buildCommand         String?
+  runCommand           String?
+  environmentVariables Json?     // Store env vars as JSON array of key-value pairs
+  
+  // New fields for build tracking
+  buildStatus          String?   // 'PENDING', 'BUILDING', 'DEPLOYED', 'FAILED'
+  lastBuildId          String?   // AWS CodeBuild build ID
+  lastBuildStartTime   DateTime?
+  deploymentUrl        String?   // ngrok URL for the deployed application
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  
+  repository           Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+}
+
 model Repository {
   id          String   @id @default(cuid())
   repoId      String
@@ -71,19 +93,4 @@ model Repository {
   config      RepositoryConfig?
   
   @@unique([userId, repoId])
-}
-
-model RepositoryConfig {
-  id                   String    @id @default(cuid())
-  repositoryId         String    @unique
-  hasDocker            Boolean   @default(false)
-  dockerConfig         String?
-  rootDirectory        String?
-  buildCommand         String?
-  runCommand           String?
-  environmentVariables Json?     // Store env vars as JSON array of key-value pairs
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  
-  repository           Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
 }
