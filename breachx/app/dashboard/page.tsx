@@ -44,11 +44,14 @@ import { Progress } from "@/components/ui/progress"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 
+type EnvVar = { key: string; value: string };
+
+
 
 export default function Dashboard() {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const [repositories, setRepositories] = useState([])
+  const [repositories, setRepositories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedRepo, setSelectedRepo] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState("grid")
@@ -191,11 +194,16 @@ export default function Dashboard() {
     setEnvVars([...envVars, { key: "", value: "" }])
   }
 
-  const updateEnvVar = ({index, field, value}:any) => {
-    const updatedVars = [...envVars]
-    updatedVars[index][field] = value
-    setEnvVars(updatedVars)
-  }
+  const updateEnvVar = ({
+    index,
+    field,
+    value,
+  }: { index: number; field: keyof EnvVar; value: string }) => {
+    const updatedVars = [...envVars];
+    updatedVars[index][field] = value;
+    setEnvVars(updatedVars);
+  };
+  
 
   const removeEnvVar = (index:any) => {
     const updatedVars = [...envVars]
@@ -204,7 +212,7 @@ export default function Dashboard() {
   }
 
   const getLanguageColor = (language:any) => {
-    const colors = {
+    const colors: { [key: string]: string } = {
       JavaScript: "bg-yellow-400",
       TypeScript: "bg-blue-500",
       Python: "bg-green-500",
@@ -237,7 +245,7 @@ export default function Dashboard() {
         return a.name.localeCompare(b.name)
       case "activity":
       default:
-        return new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
+        return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
     }
   })
 
@@ -1010,7 +1018,7 @@ export default function Dashboard() {
                             className="bg-gray-950 border-gray-800 text-gray-300 focus:ring-2 focus:ring-purple-500/50 transition-all pr-8"
                             value={envVar.key}
                             onChange={(e) => {
-                              updateEnvVar(index, "key", e.target.value)
+                              updateEnvVar({ index, field: "value", value: e.target.value });
                               if (envVars.every((v) => v.key.trim() && v.value.trim())) {
                                 markSectionComplete("env")
                               } else if (completedSections.includes("env")) {
@@ -1030,7 +1038,7 @@ export default function Dashboard() {
                             className="bg-gray-950 border-gray-800 text-gray-300 focus:ring-2 focus:ring-purple-500/50 transition-all pr-8"
                             value={envVar.value}
                             onChange={(e) => {
-                              updateEnvVar(index, "value", e.target.value)
+                              updateEnvVar({ index, field: "value", value: e.target.value });
                               if (envVars.every((v) => v.key.trim() && v.value.trim())) {
                                 markSectionComplete("env")
                               } else if (completedSections.includes("env")) {

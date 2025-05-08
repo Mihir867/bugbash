@@ -48,7 +48,7 @@ export const authOptions = {
     signIn: '/sign-in',
   },
   session: {
-    strategy: 'database',
+    strategy: 'database' as const, // ✅ FIX: enforce literal type
   },
   secret: process.env.NEXTAUTH_SECRET,
 };

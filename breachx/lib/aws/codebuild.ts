@@ -1,7 +1,7 @@
 // src/lib/aws/codebuild.ts
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { CodeBuildClient, StartBuildCommand, CreateProjectCommand, BatchGetProjectsCommand } from "@aws-sdk/client-codebuild";
+import { CodeBuildClient, StartBuildCommand, CreateProjectCommand, BatchGetProjectsCommand, StartBuildCommandInput, CreateProjectCommandInput, EnvironmentVariableType } from "@aws-sdk/client-codebuild";
 import { PrismaClient, Repository, RepositoryConfig } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -20,7 +20,7 @@ async function projectExists(projectName: string): Promise<boolean> {
   try {
     const command = new BatchGetProjectsCommand({ names: [projectName] });
     const response = await codeBuildClient.send(command);
-    return response.projects && response.projects.length > 0;
+    return !!(response.projects && response.projects.length > 0);
   } catch (error) {
     console.error(`Error checking if project ${projectName} exists:`, error);
     return false;
@@ -54,17 +54,17 @@ export async function createCodeBuildProject(repository: Repository, config: Rep
   }
   
   // Convert to CodeBuild environment variables format
-  const envVars = Array.isArray(environmentVariables) 
-    ? environmentVariables.map(({ key, value }: { key: string, value: string }) => ({
-        name: key,
-        value: value,
-        type: 'PLAINTEXT'
-      }))
-    : Object.entries(environmentVariables).map(([key, value]) => ({
-        name: key,
-        value: String(value),
-        type: 'PLAINTEXT'
-      }));
+    const envVars = Array.isArray(environmentVariables) 
+      ? environmentVariables.map(({ key, value }: { key: string, value: string }) => ({
+          name: key,
+          value: value,
+          type: 'PLAINTEXT' as EnvironmentVariableType
+        }))
+      : Object.entries(environmentVariables).map(([key, value]) => ({
+          name: key,
+          value: String(value),
+          type: 'PLAINTEXT' as EnvironmentVariableType
+        }));
   
   // Add ngrok auth token to env vars
   envVars.push({
@@ -74,31 +74,33 @@ export async function createCodeBuildProject(repository: Repository, config: Rep
   });
   
   // Create CodeBuild project
-  const createProjectParams = {
+  const createProjectParams: CreateProjectCommandInput = {
     name: projectName,
     description: `Build project for ${repository.name}`,
     source: {
-      type: 'GITHUB',
+      type: "GITHUB",
       location: repository.url,
       buildspec: generateBuildSpec(config),
     },
     artifacts: {
-      type: 'NO_ARTIFACTS',
+      type: "NO_ARTIFACTS",
     },
     environment: {
-      type: 'LINUX_CONTAINER',
-      image: config.hasDocker ? 'aws/codebuild/amazonlinux2-x86_64-standard:4.0' : 'aws/codebuild/amazonlinux2-x86_64-standard:3.0',
-      computeType: 'BUILD_GENERAL1_SMALL',
-      privilegedMode: config.hasDocker, // Enable for Docker builds
+      type: "LINUX_CONTAINER",
+      image: config.hasDocker 
+        ? 'aws/codebuild/amazonlinux2-x86_64-standard:4.0' 
+        : 'aws/codebuild/amazonlinux2-x86_64-standard:3.0',
+      computeType: "BUILD_GENERAL1_SMALL",
+      privilegedMode: config.hasDocker,
       environmentVariables: envVars
     },
-    serviceRole: process.env.CODEBUILD_SERVICE_ROLE_ARN,
     logsConfig: {
       cloudWatchLogs: {
-        status: 'ENABLED',
+        status: "ENABLED",
         groupName: 'codebuild-logs',
       },
-    }
+    },
+    serviceRole: process.env.CODEBUILD_SERVICE_ROLE_ARN!,
   };
 
   try {
@@ -178,7 +180,7 @@ export async function triggerBuild(repositoryId: string) {
   }
 
   // Start the build
-  const startBuildParams = {
+  const startBuildParams: StartBuildCommandInput = {
     projectName,
     environmentVariablesOverride: [
       {
@@ -188,6 +190,7 @@ export async function triggerBuild(repositoryId: string) {
       }
     ]
   };
+  
 
   console.log('Starting build with params:', startBuildParams);
   try {
