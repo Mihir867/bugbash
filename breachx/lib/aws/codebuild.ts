@@ -1,5 +1,7 @@
 // src/lib/aws/codebuild.ts
-import { CodeBuildClient, StartBuildCommand, CreateProjectCommand, BatchGetProjectsCommand, ResourceNotFoundException } from "@aws-sdk/client-codebuild";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { CodeBuildClient, StartBuildCommand, CreateProjectCommand, BatchGetProjectsCommand } from "@aws-sdk/client-codebuild";
 import { PrismaClient, Repository, RepositoryConfig } from '@prisma/client';
 
 const prisma = new PrismaClient();

@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 'use client'
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -77,7 +79,7 @@ function StatusBadge({ status }: { status: string }) {
     case 'BUILDING':
       return <Badge variant="secondary">Building</Badge>;
     case 'DEPLOYED':
-      return <Badge variant="success">Deployed</Badge>;
+      return <Badge variant="default">Deployed</Badge>;
     case 'FAILED':
       return <Badge variant="destructive">Failed</Badge>;
     default:

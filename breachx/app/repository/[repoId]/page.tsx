@@ -1,13 +1,11 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
-import { use } from 'react';
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ReceiptPoundSterling } from 'lucide-react';
 
 // Define types for our data structures
 interface RepositoryConfig {
@@ -37,6 +35,7 @@ interface Repository {
   createdAt: string;
   updatedAt: string;
   config?: RepositoryConfig;
+  repository: any;
 }
 
 export default function RepositoryDetail() {
@@ -193,7 +192,7 @@ export default function RepositoryDetail() {
               <h1 className="text-2xl font-bold mb-2">{repository.repository.name}</h1>
               
               {repository.repository.description && (
-                <p className="text-gray-600 mb-4">{repository.repositorydescription}</p>
+                <p className="text-gray-600 mb-4">{repository.repository.description}</p>
               )}
             </div>
             

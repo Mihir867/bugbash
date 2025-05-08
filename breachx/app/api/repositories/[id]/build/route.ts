@@ -15,7 +15,6 @@ export async function POST(
 
       
         // Fetch and log all repository configs
-        const allRepositories = await prisma.repositoryConfig.findMany();
       
         // Try to find the specific repository
         const repository = await prisma.repositoryConfig.findUnique({
