@@ -1,11 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 "use client"
 
 import type React from "react"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
@@ -21,7 +22,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, ExternalLink, GitBranch, Play, CheckCircle, XCircle, Clock, Terminal } from "lucide-react"
+import { ArrowLeft, ExternalLink, GitBranch, Play, CheckCircle, XCircle, Clock, Terminal, RefreshCw } from "lucide-react"
+import BuildLogStream from "@/components/ui/buildstream"
 
 // Define types for our data structures
 interface RepositoryConfig {
@@ -39,6 +41,19 @@ interface RepositoryConfig {
   deploymentUrl?: string
   createdAt: string
   updatedAt: string
+  installCommand?: string
+}
+
+interface BuildStatus {
+  id: string;
+  buildNumber: string;
+  status: string;
+  startTime: string;
+  endTime?: string;
+  currentPhase: string;
+  phaseStatus: string;
+  logStreamName?: string;
+  logGroupName?: string;
 }
 
 interface Repository {
@@ -54,27 +69,27 @@ interface Repository {
   repository: any
 }
 
-interface LogEntry {
-  timestamp: string
-  message: string
-  level: "info" | "error" | "warning"
+interface LastBuildInfo {
+  lastBuildId: string;
+  buildStatus: string;
+  lastBuildStartTime: string;
 }
 
 export default function RepositoryDetail() {
   const { repoId } = useParams()
   const { data: session, status } = useSession()
   const router = useRouter()
-
+ 
   const [repository, setRepository] = useState<null | Repository>(null)
   const [repoConfig, setRepoConfig] = useState<null | RepositoryConfig>(null)
   const [loading, setLoading] = useState(true)
   const [buildLoading, setBuildLoading] = useState(false)
   const [buildMessage, setBuildMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(true)
-  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [dialogOpen, setDialogOpen] = useState(false) // Dialog doesn't open automatically
   const [activeTab, setActiveTab] = useState<"details" | "logs">("details")
-
-  const logsEndRef = useRef<HTMLDivElement>(null)
+  const [buildStatus, setBuildStatus] = useState<BuildStatus | null>(null)
+  const [lastBuildInfo, setLastBuildInfo] = useState<LastBuildInfo | null>(null)
+  const [currentBuildId, setCurrentBuildId] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -82,34 +97,82 @@ export default function RepositoryDetail() {
     }
   }, [status, router])
 
-  
   useEffect(() => {
     if (session && repoId) {
       fetchRepositoryDetails()
     }
   }, [session, repoId])
 
-  // Auto-scroll logs to bottom when new logs are added
+  // Fetch last build information when repository details are loaded
   useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" })
+    if (repoConfig?.lastBuildId) {
+      fetchLastBuildInfo()
+      setCurrentBuildId(repoConfig.lastBuildId)
     }
-  }, [logs])
+  }, [repoConfig])
 
-  // Mock function to simulate fetching logs from AWS
-  // This would be replaced with actual AWS log fetching logic
-  const fetchLogs = async () => {
-    // This is a placeholder - you would implement actual AWS log fetching here
-    const mockLogs: LogEntry[] = [
-      { timestamp: new Date().toISOString(), message: "Initializing build process", level: "info" },
-      { timestamp: new Date().toISOString(), message: "Cloning repository", level: "info" },
-      { timestamp: new Date().toISOString(), message: "Installing dependencies", level: "info" },
-      { timestamp: new Date().toISOString(), message: "Running build command", level: "info" },
-      { timestamp: new Date().toISOString(), message: "Build completed successfully", level: "info" },
-    ]
+  // Fetch build status when currentBuildId changes
+  useEffect(() => {
+    if (currentBuildId) {
+      fetchBuildStatus(currentBuildId)
+      
+      // Set up polling for build status
+      const statusInterval = setInterval(() => {
+        fetchBuildStatus(currentBuildId)
+      }, 10000) // Poll every 10 seconds
+      
+      return () => {
+        clearInterval(statusInterval)
+      }
+    }
+  }, [currentBuildId])
 
-    setLogs(mockLogs)
+  const fetchLastBuildInfo = async () => {
+    if (!repoId || typeof repoId !== 'string') return
+    
+    try {
+      const response = await fetch(`/api/repositories/${repoId}/lastBuild`)
+      
+      if (!response.ok) {
+        if (response.status !== 404) { // It's okay if there are no builds yet
+          console.error('Failed to fetch last build info:', response.statusText)
+        }
+        return
+      }
+      
+      const data = await response.json()
+      setLastBuildInfo(data)
+      
+      // Set current build ID if it's not already set
+      if (!currentBuildId && data.lastBuildId) {
+        setCurrentBuildId(data.lastBuildId)
+      }
+    } catch (error) {
+      console.error('Error fetching last build info:', error)
+    }
   }
+
+  const fetchBuildStatus = async (buildId: string) => {
+    try {
+      const response = await fetch(`/api/builds/${buildId}/status`)
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch build status: ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      setBuildStatus(data)
+      
+      // If the build is complete, update the repository details
+      if (['SUCCEEDED', 'FAILED', 'STOPPED'].includes(data.status)) {
+        fetchRepositoryDetails()
+      }
+    } catch (error) {
+      console.error('Error fetching build status:', error)
+    }
+  }
+
+  // We don't need fetchBuildLogs anymore as we're using WebSockets via BuildLogStream
 
   const fetchRepositoryDetails = async () => {
     try {
@@ -126,9 +189,6 @@ export default function RepositoryDetail() {
         const configData = await configResponse.json()
         setRepoConfig(configData)
       }
-
-      // Fetch logs when repository details are loaded
-      fetchLogs()
     } catch (error) {
       console.error("Error fetching repository details:", error)
       router.push("/dashboard")
@@ -152,12 +212,17 @@ export default function RepositoryDetail() {
       const data = await response.json()
 
       if (response.ok) {
-        setBuildMessage({
-          type: "success",
-          text: "Build triggered successfully! Build ID: " + data.buildId,
-        })
+        
+        
+        // Set the current build ID to the new build
+        setCurrentBuildId(data.buildId)
+        
+        // Automatically switch to logs tab
+        setActiveTab("logs")
+        
         // Refresh the repository config to get updated build status
         fetchRepositoryDetails()
+        
         // Close the dialog after successful build trigger
         setDialogOpen(false)
       } else {
@@ -177,6 +242,8 @@ export default function RepositoryDetail() {
     }
   }
 
+  // We don't need refreshLogs anymore as the BuildLogStream component handles this
+
   const getBuildStatusBadge = (status?: string) => {
     if (!status) return null
 
@@ -186,8 +253,11 @@ export default function RepositoryDetail() {
     > = {
       PENDING: { variant: "secondary", icon: <Clock className="h-3 w-3 mr-1" /> },
       BUILDING: { variant: "secondary", icon: <Terminal className="h-3 w-3 mr-1" /> },
+      IN_PROGRESS: { variant: "secondary", icon: <Terminal className="h-3 w-3 mr-1" /> },
       DEPLOYED: { variant: "default", icon: <CheckCircle className="h-3 w-3 mr-1" /> },
+      SUCCEEDED: { variant: "default", icon: <CheckCircle className="h-3 w-3 mr-1" /> },
       FAILED: { variant: "destructive", icon: <XCircle className="h-3 w-3 mr-1" /> },
+      STOPPED: { variant: "outline", icon: <XCircle className="h-3 w-3 mr-1" /> },
     }
 
     const { variant, icon } = statusVariants[status] || { variant: "outline", icon: null }
@@ -233,7 +303,7 @@ export default function RepositoryDetail() {
   }
 
   return (
-    <div className=" max-w-7xl mx-auto px-4 pb-8 pt-20 min-h-screen bg-black text-foreground">
+    <div className="max-w-7xl mx-auto px-4 pb-8 pt-20 min-h-screen bg-black text-foreground">
       <AnimatePresence>
         {dialogOpen && (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -277,7 +347,7 @@ export default function RepositoryDetail() {
           </Button>
         </div>
 
-        <Card className="overflow-hidden min-h-[800px]">
+        <Card className="overflow-hidden min-h-[900px]">
           <CardHeader className="pb-4">
             <div className="flex justify-between items-start">
               <div>
@@ -288,14 +358,22 @@ export default function RepositoryDetail() {
                 )}
               </div>
 
-              
+              <div>
+                <Button 
+                  onClick={() => setDialogOpen(true)}
+                  className="flex items-center gap-2"
+                >
+                  <Play className="h-4 w-4" />
+                  Trigger Build
+                </Button>
+              </div>
             </div>
 
             {buildMessage && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={`mt-4 p-3 rounded ${buildMessage.type === "success" ? "bg-green-900/20 text-green-400" : "bg-red-900/20 text-red-400"}`}
+                className={`mt-4 p-3 rounded ${buildMessage.type === "success" ? "bg-green-900/20 text-green-400" : "bg-black text-white"}`}
               >
                 {buildMessage.text}
               </motion.div>
@@ -386,8 +464,8 @@ export default function RepositoryDetail() {
                           <p className="font-medium">{repoConfig.runCommand || "Not specified"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Docker</p>
-                          <p className="font-medium">{repoConfig.hasDocker ? "Enabled" : "Disabled"}</p>
+                          <p className="text-muted-foreground">Install Command</p>
+                          <p className="font-medium">{repoConfig.installCommand || "Not specified"}</p>
                         </div>
                       </div>
 
@@ -417,31 +495,39 @@ export default function RepositoryDetail() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.3 }}
-                  className="h-[400px] overflow-y-auto bg-black/50 rounded-md p-4 font-mono text-sm"
+                  className="space-y-4"
                 >
-                  {logs.length > 0 ? (
-                    logs.map((log, index) => (
-                      <motion.div
-                        key={index}
-                        initial={{ opacity: 0, y: 5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        className={`mb-1 ${
-                          log.level === "error"
-                            ? "text-red-400"
-                            : log.level === "warning"
-                              ? "text-yellow-400"
-                              : "text-green-400"
-                        }`}
-                      >
-                        <span className="text-muted-foreground">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{" "}
-                        {log.message}
-                      </motion.div>
-                    ))
-                  ) : (
-                    <p className="text-muted-foreground">No logs available. Trigger a build to see logs.</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-semibold">Build Logs</h2>
+                      {buildStatus && getBuildStatusBadge(buildStatus.status)}
+                    </div>
+                  </div>
+                  
+                  {/* Display build status information */}
+                  {buildStatus && (
+                    <div className="grid grid-cols-1 text-white md:grid-cols-3 gap-4 bg-black p-4 rounded-md">
+                      <div>
+                        <p className="text-muted-foreground text-sm">Build Number</p>
+                        <p className="font-medium">{buildStatus.buildNumber}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-sm">Current Phase</p>
+                        <p className="font-medium">{buildStatus.currentPhase}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-sm">Phase Status</p>
+                        <p className="font-medium">{buildStatus.phaseStatus}</p>
+                      </div>
+                    </div>
                   )}
-                  <div ref={logsEndRef} />
+                  
+                  {/* Use BuildLogStream component for WebSocket-based log streaming */}
+                  <BuildLogStream
+                    buildId={currentBuildId || ''}
+                    maxHeight="400px"
+                    autoScroll={true}
+                  />
                 </motion.div>
               )}
             </div>

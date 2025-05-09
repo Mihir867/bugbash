@@ -1,125 +1,140 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // src/server/websocket.ts
+import AWS from 'aws-sdk';
 import { parse } from 'url';
 import { WebSocketServer } from 'ws';
-import { CloudWatchLogsClient, GetLogEventsCommand, DescribeLogStreamsCommand } from "@aws-sdk/client-cloudwatch-logs";
 
 // Initialize CloudWatch Logs client
-const cloudWatchLogsClient = new CloudWatchLogsClient({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-  }
-});
+
 
 // Function to get log stream name for a build
-async function getLogStreamName(buildId: string): Promise<string | null> {
-  try {
-    // The log stream name usually follows the format: "build-id/build-log"
-    const logGroupName = 'codebuild-logs';
-    const describeStreamsCommand = new DescribeLogStreamsCommand({
-      logGroupName,
-      logStreamNamePrefix: buildId,
-      limit: 1
-    });
-    
-    const response = await cloudWatchLogsClient.send(describeStreamsCommand);
-    
-    if (response.logStreams && response.logStreams.length > 0) {
-      return response.logStreams[0].logStreamName || null;
-    }
-    return null;
-  } catch (error) {
-    console.error('Error getting log stream name:', error);
-    return null;
-  }
-}
 
 // Function to stream logs to a WebSocket connection
-async function streamBuildLogs(buildId: string, ws: any): Promise<void> {
-  let logStreamName: string | null = null;
-  let nextToken: string | undefined = undefined;
-  let retryCount = 0;
-  const MAX_RETRIES = 30; // Retry for up to ~30 seconds to find the log stream
-  const POLL_INTERVAL = 3000; // Poll for new logs every 3 seconds
-  
-  // First, try to get the log stream name (may take a few seconds to be created)
-  while (!logStreamName && retryCount < MAX_RETRIES) {
-    logStreamName = await getLogStreamName(buildId);
-    
-    if (!logStreamName) {
-      retryCount++;
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
-    }
+interface WebSocketLike {
+    send: (data: string) => void;
+    close?: () => void;
+    readyState?: number;
+    OPEN?: number;
+    on?: (event: string, callback: (...args: any[]) => void) => void;
   }
   
-  if (!logStreamName) {
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Could not find log stream for build. This may happen if the build has not started yet or if the build ID is invalid.'
-    }));
-    return;
-  }
-  
-  ws.send(JSON.stringify({
-    type: 'info',
-    message: `Connected to log stream for build ${buildId}`
-  }));
-  
-  // Poll for new logs
-  const logGroupName = 'codebuild-logs';
-  const intervalId = setInterval(async () => {
+  export const streamBuildLogs = async (buildId: string, ws: WebSocketLike) => {
     try {
-      const getLogsCommand = new GetLogEventsCommand({
-        logGroupName,
-        logStreamName,
-        nextToken,
-        startFromHead: true
+      // Configure AWS
+      const codebuild = new AWS.CodeBuild({
+        region: process.env.AWS_REGION || 'us-east-1',
+        // Credentials will be automatically loaded from environment variables or IAM role
       });
       
-      const response = await cloudWatchLogsClient.send(getLogsCommand);
+      // Send initial connection message
+      ws.send(JSON.stringify({
+        type: 'info',
+        message: `Starting log stream for build ${buildId}`,
+        timestamp: Date.now()
+      }));
       
-      if (response.events && response.events.length > 0) {
-        // Send each log event to the WebSocket
-        for (const event of response.events) {
-          if (event.message) {
-            ws.send(JSON.stringify({
-              type: event.message.includes('ERROR') ? 'error' : 'log',
-              timestamp: event.timestamp,
-              message: event.message
-            }));
-          }
+      // Start the log streaming process
+      let nextToken: string | undefined;
+      const logGroupName = `/aws/codebuild/${process.env.CODEBUILD_PROJECT_NAME || 'your-project-name'}`;
+      const logStreamName = `${buildId}`;
+      
+      // This is potentially a long-running operation, so we need to check if the connection is still open
+      const interval = setInterval(async () => {
+        // Check if the connection is still open
+        const isOpen = ws.readyState !== undefined ? 
+          (ws.readyState === (ws.OPEN || 1)) : 
+          true; // If no readyState property, assume it's open
+        
+        if (!isOpen) {
+          clearInterval(interval);
+          return;
         }
-      }
+        
+        try {
+          // Get log events from CloudWatch
+          const cloudwatchlogs = new AWS.CloudWatchLogs({
+            region: process.env.AWS_REGION || 'us-east-1',
+          });
+          
+          const params = {
+            logGroupName,
+            logStreamName,
+            nextToken,
+            startFromHead: true
+          };
+          
+          const logEvents = await cloudwatchlogs.getLogEvents(params).promise();
+          
+          // Send each log event to the client
+          if (logEvents.events && logEvents.events.length > 0) {
+            for (const event of logEvents.events) {
+              ws.send(JSON.stringify({
+                type: 'log',
+                message: event.message || '',
+                timestamp: event.timestamp
+              }));
+            }
+          }
+          
+          // Update the next token for pagination
+          nextToken = logEvents.nextForwardToken;
+          
+          // Check if the build is complete
+          const buildInfo = await codebuild.batchGetBuilds({
+            ids: [buildId]
+          }).promise();
+          
+          if (buildInfo.builds && buildInfo.builds.length > 0) {
+            const build = buildInfo.builds[0];
+            
+            if (['SUCCEEDED', 'FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT'].includes(build.buildStatus || '')) {
+              ws.send(JSON.stringify({
+                type: 'info',
+                message: `Build ${buildId} completed with status: ${build.buildStatus}`,
+                timestamp: Date.now()
+              }));
+              
+              clearInterval(interval);
+              
+              // Give some time for any final logs to be sent
+              setTimeout(() => {
+                if (ws.close) {
+                  ws.close();
+                }
+              }, 5000);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching logs:', error);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: `Error fetching logs: ${error instanceof Error ? error.message : String(error)}`,
+            timestamp: Date.now()
+          }));
+        }
+      }, 3000); // Poll every 3 seconds
       
-      // Store the next token for the next poll
-      nextToken = response.nextForwardToken;
-      
-      // Check if the build is complete
-      if (response.events?.some(e => e.message?.includes('Completed build:'))) {
-        clearInterval(intervalId);
-        ws.send(JSON.stringify({
-          type: 'info',
-          message: 'Build completed'
-        }));
+      // Clean up when the connection is closed
+      if (ws.on) {
+        ws.on('close', () => {
+          clearInterval(interval);
+        });
       }
     } catch (error) {
-      console.error('Error streaming logs:', error);
+      console.error('Error setting up log stream:', error);
       ws.send(JSON.stringify({
         type: 'error',
-        message: 'Error retrieving logs'
+        message: `Error setting up log stream: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp: Date.now()
       }));
-      clearInterval(intervalId);
+      
+      // Close the connection in case of setup error
+      if (ws.close) {
+        ws.close();
+      }
     }
-  }, POLL_INTERVAL);
-  
-  // Clean up when the WebSocket closes
-  ws.on('close', () => {
-    clearInterval(intervalId);
-  });
-}
+  };
 
 // Create WebSocket server
 export function createWebSocketServer(server: any) {

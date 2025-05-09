@@ -65,6 +65,7 @@ model RepositoryConfig {
   rootDirectory        String?
   buildCommand         String?
   runCommand           String?
+  installCommand       String?
   environmentVariables Json?     // Store env vars as JSON array of key-value pairs
   
   // New fields for build tracking

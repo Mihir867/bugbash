@@ -28,6 +28,7 @@ import {
   Database,
   Terminal,
   Key,
+  Play,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -62,11 +63,13 @@ export default function Dashboard() {
   const [dockerConfig, setDockerConfig] = useState("")
   const [rootDirectory, setRootDirectory] = useState("")
   const [buildCommand, setBuildCommand] = useState("")
+  const [installCommand, setInstallCommand] = useState("")
   const [runCommand, setRunCommand] = useState("")
   const [hasEnv, setHasEnv] = useState(false)
   const [envVars, setEnvVars] = useState([{ key: "", value: "" }])
   const [progress, setProgress] = useState(0)
   const [sortOption, setSortOption] = useState("activity")
+
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -180,6 +183,7 @@ export default function Dashboard() {
           dockerConfig: hasDocker ? dockerConfig : null,
           rootDirectory: !hasDocker ? rootDirectory : null,
           buildCommand: !hasDocker ? buildCommand : null,
+          installCommand: !hasDocker ? installCommand : null,
           runCommand: !hasDocker ? runCommand : null,
           env: hasEnv ? envVars.filter((v) => v.key.trim() !== "") : [],
         }),
@@ -754,170 +758,240 @@ export default function Dashboard() {
                     className="space-y-4"
                   >
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor="root-dir" className="text-white">
-                            Root Directory
-                          </Label>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-5 w-5 text-gray-500 hover:text-gray-400"
-                                >
-                                  <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    className="h-3 w-3"
-                                  >
-                                    <circle cx="12" cy="12" r="10" />
-                                    <path d="M12 16v-4" />
-                                    <path d="M12 8h.01" />
-                                  </svg>
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="right">
-                                <p className="text-xs max-w-xs">The directory where your application code is located</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <div className="relative">
-                          <Database className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                          <Input
-                            id="root-dir"
-                            placeholder="/"
-                            className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
-                            value={rootDirectory}
-                            onChange={(e) => {
-                              setRootDirectory(e.target.value)
-                              if (
-                                e.target.value.trim().length > 0 &&
-                                buildCommand.trim().length > 0 &&
-                                runCommand.trim().length > 0
-                              ) {
-                                markSectionComplete("docker")
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
+  <div className="space-y-2">
+    <div className="flex items-center gap-2">
+      <Label htmlFor="root-dir" className="text-white">
+        Root Directory
+      </Label>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 text-gray-500 hover:text-gray-400"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-3 w-3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p className="text-xs max-w-xs">The directory where your application code is located</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+    <div className="relative">
+      <Database className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+      <Input
+        id="root-dir"
+        placeholder="/"
+        className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
+        value={rootDirectory}
+        onChange={(e) => {
+          setRootDirectory(e.target.value)
+          if (
+            e.target.value.trim().length > 0 &&
+            buildCommand.trim().length > 0 &&
+            installCommand.trim().length > 0 &&
+            runCommand.trim().length > 0
+          ) {
+            markSectionComplete("docker")
+          }
+        }}
+      />
+    </div>
+  </div>
 
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor="build-cmd" className="text-white">
-                            Build Command
-                          </Label>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-5 w-5 text-gray-500 hover:text-gray-400"
-                                >
-                                  <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    className="h-3 w-3"
-                                  >
-                                    <circle cx="12" cy="12" r="10" />
-                                    <path d="M12 16v-4" />
-                                    <path d="M12 8h.01" />
-                                  </svg>
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="right">
-                                <p className="text-xs max-w-xs">Command to build your application</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <div className="relative">
-                          <Terminal className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                          <Input
-                            id="build-cmd"
-                            placeholder="npm run build"
-                            className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
-                            value={buildCommand}
-                            onChange={(e) => {
-                              setBuildCommand(e.target.value)
-                              if (
-                                rootDirectory.trim().length > 0 &&
-                                e.target.value.trim().length > 0 &&
-                                runCommand.trim().length > 0
-                              ) {
-                                markSectionComplete("docker")
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
+  <div className="space-y-2">
+    <div className="flex items-center gap-2">
+      <Label htmlFor="install-cmd" className="text-white">
+        Install Command
+      </Label>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 text-gray-500 hover:text-gray-400"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-3 w-3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p className="text-xs max-w-xs">Command to install dependencies</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+    <div className="relative">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"
+      >
+        <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" />
+        <path d="M4 6v12c0 1.1.9 2 2 2h14v-4" />
+        <path d="M18 12c-1.1 0-2 .9-2 2s.9 2 2 2h4v-4z" />
+      </svg>
+      <Input
+        id="install-cmd"
+        placeholder="npm install"
+        className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
+        value={installCommand}
+        onChange={(e) => {
+          setInstallCommand(e.target.value)
+        }}
+      />
+    </div>
+  </div>
 
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label htmlFor="run-cmd" className="text-white">
-                          Run Command
-                        </Label>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-5 w-5 text-gray-500 hover:text-gray-400">
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="h-3 w-3"
-                                >
-                                  <circle cx="12" cy="12" r="10" />
-                                  <path d="M12 16v-4" />
-                                  <path d="M12 8h.01" />
-                                </svg>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">
-                              <p className="text-xs max-w-xs">Command to start your application</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <div className="relative">
-                        <Terminal className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                        <Input
-                          id="run-cmd"
-                          placeholder="npm start"
-                          className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
-                          value={runCommand}
-                          onChange={(e) => {
-                            setRunCommand(e.target.value)
-                            if (
-                              rootDirectory.trim().length > 0 &&
-                              buildCommand.trim().length > 0 &&
-                              e.target.value.trim().length > 0
-                            ) {
-                              markSectionComplete("docker")
-                            }
-                          }}
-                        />
-                      </div>
-                    </div>
+  <div className="space-y-2">
+    <div className="flex items-center gap-2">
+      <Label htmlFor="build-cmd" className="text-white">
+        Build Command
+      </Label>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 text-gray-500 hover:text-gray-400"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-3 w-3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p className="text-xs max-w-xs">Command to build your application</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+    <div className="relative">
+      <Terminal className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+      <Input
+        id="build-cmd"
+        placeholder="npm run build"
+        className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
+        value={buildCommand}
+        onChange={(e) => {
+          setBuildCommand(e.target.value)
+          if (
+            rootDirectory.trim().length > 0 &&
+            e.target.value.trim().length > 0 &&
+            runCommand.trim().length > 0
+          ) {
+            markSectionComplete("docker")
+          }
+        }}
+      />
+    </div>
+  </div>
+
+  <div className="space-y-2">
+    <div className="flex items-center gap-2">
+      <Label htmlFor="run-cmd" className="text-white">
+        Run Command
+      </Label>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 text-gray-500 hover:text-gray-400"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-3 w-3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p className="text-xs max-w-xs">Command to start your application</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+    <div className="relative">
+      <Play className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+      <Input
+        id="run-cmd"
+        placeholder="npm start"
+        className="bg-gray-950 border-gray-800 text-gray-300 pl-9 focus:ring-2 focus:ring-blue-500/50 transition-all"
+        value={runCommand}
+        onChange={(e) => {
+          setRunCommand(e.target.value)
+          if (
+            rootDirectory.trim().length > 0 &&
+            buildCommand.trim().length > 0 &&
+            installCommand.trim().length > 0 &&
+            e.target.value.trim().length > 0
+          ) {
+            markSectionComplete("docker")
+          }
+        }}
+      />
+    </div>
+  </div>
+</div>
+
+                   
                   </motion.div>
                 )}
               </AnimatePresence>

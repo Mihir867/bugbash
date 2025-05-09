@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     rootDirectory,
     buildCommand,
     runCommand,
+    installCommand,
     env,
   } = body;
 
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
           dockerConfig,
           rootDirectory,
           buildCommand,
+          installCommand,
           runCommand,
           environmentVariables: env,
         },
@@ -73,6 +75,7 @@ export async function POST(req: NextRequest) {
           dockerConfig,
           rootDirectory,
           buildCommand,
+          installCommand,
           runCommand,
           environmentVariables: env,
         },

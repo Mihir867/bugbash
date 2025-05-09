@@ -1,20 +1,47 @@
-// src/lib/aws/codebuild.ts
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-import { CodeBuildClient, StartBuildCommand, CreateProjectCommand, BatchGetProjectsCommand, StartBuildCommandInput, CreateProjectCommandInput, EnvironmentVariableType } from "@aws-sdk/client-codebuild";
-
-// Trigger build for a repository
-// src/lib/aws/codebuild.ts
-// Add these imports at the top of your file
-import { CloudWatchLogsClient, GetLogEventsCommand, DescribeLogStreamsCommand } from "@aws-sdk/client-cloudwatch-logs";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import {
+  CodeBuildClient,
+  StartBuildCommand,
+  CreateProjectCommand,
+  BatchGetProjectsCommand,
+  StartBuildCommandInput,
+  CreateProjectCommandInput,
+  EnvironmentVariableType
+} from "@aws-sdk/client-codebuild";
+import {
+  CloudWatchLogsClient,
+  DescribeLogStreamsCommand,
+  GetLogEventsCommand
+} from "@aws-sdk/client-cloudwatch-logs";
+import AWS from 'aws-sdk';
 import { WebSocket } from 'ws';
 import { PrismaClient, Repository, RepositoryConfig } from '@prisma/client';
 
+// Enhanced logging
+const logger = {
+  info: (message: string, data?: any) => {
+    const logMessage = data ? `${message}: ${JSON.stringify(data, null, 2)}` : message;
+    console.log(`[INFO] ${new Date().toISOString()} - ${logMessage}`);
+  },
+  error: (message: string, error: any) => {
+    console.error(`[ERROR] ${new Date().toISOString()} - ${message}:`, error);
+    if (error instanceof Error) {
+      console.error(`Stack trace: ${error.stack}`);
+    }
+  },
+  debug: (message: string, data?: any) => {
+    const logMessage = data ? `${message}: ${JSON.stringify(data, null, 2)}` : message;
+    console.debug(`[DEBUG] ${new Date().toISOString()} - ${logMessage}`);
+  }
+};
+
+logger.info("Initializing AWS CodeBuild deployment module");
+
 const prisma = new PrismaClient();
 
+logger.info("Setting up AWS clients with region", { region: process.env.AWS_REGION || 'us-east-1' });
 
-
-// Initialize AWS CodeBuild client
 const codeBuildClient = new CodeBuildClient({
   region: process.env.AWS_REGION || 'us-east-1',
   credentials: {
@@ -23,148 +50,6 @@ const codeBuildClient = new CodeBuildClient({
   }
 });
 
-// Function to check if a CodeBuild project exists
-async function projectExists(projectName: string): Promise<boolean> {
-  try {
-    const command = new BatchGetProjectsCommand({ names: [projectName] });
-    const response = await codeBuildClient.send(command);
-    return !!(response.projects && response.projects.length > 0);
-  } catch (error) {
-    console.error(`Error checking if project ${projectName} exists:`, error);
-    return false;
-  }
-}
-
-// Function to create CodeBuild project for a repository
-export async function createCodeBuildProject(repository: Repository, config: RepositoryConfig) {
-  const projectName = `repo-${repository.id}`;
-  
-  // Check if project already exists
-  const exists = await projectExists(projectName);
-  if (exists) {
-    return { project: { name: projectName } };
-  }
-  
-  // Parse environment variables from JSON
-  let environmentVariables = [];
-  try {
-    if (config.environmentVariables) {
-      if (typeof config.environmentVariables === 'string') {
-        environmentVariables = JSON.parse(config.environmentVariables);
-      } else {
-        environmentVariables = config.environmentVariables as any;
-      }
-    }
-  } catch (error) {
-    console.error('Error parsing environment variables:', error);
-    environmentVariables = [];
-  }
-  
-  // Convert to CodeBuild environment variables format
-    const envVars = Array.isArray(environmentVariables) 
-      ? environmentVariables.map(({ key, value }: { key: string, value: string }) => ({
-          name: key,
-          value: value,
-          type: 'PLAINTEXT' as EnvironmentVariableType
-        }))
-      : Object.entries(environmentVariables).map(([key, value]) => ({
-          name: key,
-          value: String(value),
-          type: 'PLAINTEXT' as EnvironmentVariableType
-        }));
-  
-  // Add ngrok auth token to env vars
-  envVars.push({
-    name: 'NGROK_AUTH_TOKEN',
-    value: process.env.NGROK_AUTH_TOKEN || '',
-    type: 'PLAINTEXT'
-  });
-  
-  // Create CodeBuild project
-  const createProjectParams: CreateProjectCommandInput = {
-    name: projectName,
-    description: `Build project for ${repository.name}`,
-    source: {
-      type: "GITHUB",
-      location: repository.url,
-      buildspec: generateBuildSpec(config),
-    },
-    artifacts: {
-      type: "NO_ARTIFACTS",
-    },
-    environment: {
-      type: "LINUX_CONTAINER",
-      image: 'aws/codebuild/standard:6.0', // ✅ Node.js 16+ compatible
-      computeType: "BUILD_GENERAL1_MEDIUM",
-      privilegedMode: config.hasDocker,
-      environmentVariables: envVars
-    },
-    logsConfig: {
-      cloudWatchLogs: {
-        status: "ENABLED",
-        groupName: 'codebuild-logs',
-      },
-    },
-    serviceRole: process.env.CODEBUILD_SERVICE_ROLE_ARN!,
-  };
-
-  try {
-    const command = new CreateProjectCommand(createProjectParams);
-    const response = await codeBuildClient.send(command);
-    return response;
-  } catch (error) {
-    console.error('Error creating CodeBuild project:', error);
-    throw error;
-  }
-}
-
-// Generate buildspec.yml content based on repository config
-function generateBuildSpec(config: RepositoryConfig): string {
-    // Set default values if not provided
-    const rootDir = config.rootDirectory || '.';
-    const buildCmd = config.buildCommand || 'npm install && npm run build';
-    const runCmd = config.runCommand || 'npm start';
-    
-    return `
-  version: 0.2
-  phases:
-    install:
-      runtime-versions:
-        nodejs: 16
-      commands:
-        - npm install -g ngrok
-    pre_build:
-      commands:
-        - echo Logging in to Docker...
-        ${config.hasDocker ? '- aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI' : '# No Docker configuration'}
-        ${config.hasDocker && config.dockerConfig ? `- ${config.dockerConfig}` : ''}
-        - cd ${rootDir}
-        - echo Installing dependencies...
-        - npm install
-    build:
-      commands:
-        - echo Build started on \`date\`
-        - ${buildCmd}
-    post_build:
-      commands:
-        - echo Starting application with ngrok tunnel...
-        - nohup ${runCmd} &
-        - sleep 10
-        - ngrok http 3000 --authtoken=$NGROK_AUTH_TOKEN --log=stdout > ngrok_output.log &
-        - sleep 5
-        - NGROK_URL=$(grep -o 'https://[0-9a-z\\-]*.ngrok.io' ngrok_output.log | head -1)
-        - echo $NGROK_URL
-        - |
-          curl -X POST $WEBHOOK_URL -H 'Content-Type: application/json' -d "{\\\"repositoryId\\\":\\\"${config.repositoryId}\\\",\\\"url\\\":\\\"$NGROK_URL\\\"}"
-  artifacts:
-    files:
-      - ngrok_output.log
-    `;
-  }
-
-
-
-// Initialize CloudWatch Logs client
 const cloudWatchLogsClient = new CloudWatchLogsClient({
   region: process.env.AWS_REGION || 'us-east-1',
   credentials: {
@@ -173,158 +58,444 @@ const cloudWatchLogsClient = new CloudWatchLogsClient({
   }
 });
 
-// Function to get log stream name for a build
-async function getLogStreamName(buildId: string): Promise<string | null> {
+function sanitizeLogStreamName(name: string): string {
+  if (!name) return 'unknown';
+  const sanitized = name
+    .replace(/:/g, '-')
+    .replace(/\*/g, '_')
+    .replace(/[^a-zA-Z0-9\.\-_\/\#]/g, '_');
+  logger.debug(`Sanitized log stream name from "${name}" to "${sanitized}"`);
+  return sanitized;
+}
+
+async function projectExists(projectName: string): Promise<boolean> {
+  logger.debug(`Checking if CodeBuild project "${projectName}" exists`);
   try {
-    // The log stream name usually follows the format: "build-id/build-log"
-    const logGroupName = 'codebuild-logs';
-    const describeStreamsCommand = new DescribeLogStreamsCommand({
-      logGroupName,
-      logStreamNamePrefix: buildId,
-      limit: 1
-    });
-    
-    const response = await cloudWatchLogsClient.send(describeStreamsCommand);
-    
-    if (response.logStreams && response.logStreams.length > 0) {
-      return response.logStreams[0].logStreamName || null;
+    const command = new BatchGetProjectsCommand({ names: [projectName] });
+    const response = await codeBuildClient.send(command);
+    const exists = !!(response.projects && response.projects.length > 0);
+    logger.info(`Project "${projectName}" ${exists ? 'exists' : 'does not exist'}`);
+    if (exists) {
+      logger.debug(`Project details:`, response.projects?.[0]);
     }
-    return null;
+    return exists;
   } catch (error) {
-    console.error('Error getting log stream name:', error);
-    return null;
+    logger.error(`Error checking if project ${projectName} exists`, error);
+    return false;
   }
 }
 
-// Function to stream logs to a WebSocket connection
-export async function streamBuildLogs(buildId: string, websocket: WebSocket): Promise<void> {
-  let logStreamName: string | null = null;
-  let nextToken: string | undefined = undefined;
-  let retryCount = 0;
-  const MAX_RETRIES = 30; // Retry for up to ~30 seconds to find the log stream
-  const POLL_INTERVAL = 5000; // Poll for new logs every 5 seconds
-  
-  // First, try to get the log stream name (may take a few seconds to be created)
-  while (!logStreamName && retryCount < MAX_RETRIES) {
-    logStreamName = await getLogStreamName(buildId);
-    
-    if (!logStreamName) {
-      retryCount++;
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
-    }
-  }
-  
-  if (!logStreamName) {
-    websocket.send(JSON.stringify({
-      type: 'error',
-      message: 'Could not find log stream for build'
-    }));
-    return;
-  }
-  
-  websocket.send(JSON.stringify({
-    type: 'info',
-    message: `Connected to log stream: ${logStreamName}`
-  }));
-  
-  // Poll for new logs
-  const logGroupName = 'codebuild-logs';
-  const intervalId = setInterval(async () => {
-    try {
-      const getLogsCommand = new GetLogEventsCommand({
-        logGroupName,
-        logStreamName,
-        nextToken,
-        startFromHead: true
-      });
-      
-      const response = await cloudWatchLogsClient.send(getLogsCommand);
-      
-      if (response.events && response.events.length > 0) {
-        // Send each log event to the WebSocket
-        for (const event of response.events) {
-          if (event.message) {
-            websocket.send(JSON.stringify({
-              type: 'log',
-              timestamp: event.timestamp,
-              message: event.message
-            }));
-          }
-        }
-      }
-      
-      // Store the next token for the next poll
-      nextToken = response.nextForwardToken;
-      
-      // Check if the build is complete
-      // This is a simplistic approach - in a real implementation you would
-      // check the build status from CodeBuild API
-      if (response.events?.some(e => e.message?.includes('Build complete'))) {
-        clearInterval(intervalId);
-        websocket.send(JSON.stringify({
-          type: 'info',
-          message: 'Build completed'
-        }));
-      }
-    } catch (error) {
-      console.error('Error streaming logs:', error);
-      websocket.send(JSON.stringify({
-        type: 'error',
-        message: 'Error retrieving logs'
-      }));
-      clearInterval(intervalId);
-    }
-  }, POLL_INTERVAL);
-  
-  // Clean up when the WebSocket closes
-  websocket.on('close', () => {
-    clearInterval(intervalId);
+export async function createCodeBuildProject(repository: Repository, config: RepositoryConfig) {
+  logger.info(`Creating CodeBuild project for repository ${repository.id} (${repository.name})`, { 
+    repositoryUrl: repository.url 
   });
-}
-
-// Replace your existing triggerBuild function with this one
-export async function triggerBuild(repository: any) {
+  
   const projectName = `repo-${repository.id}`;
-
-  // Check if project exists, if not create it
   const exists = await projectExists(projectName);
-  if (!exists) {
-    await createCodeBuildProject(repository, repository.config);
+  if (exists) {
+    logger.info(`Project ${projectName} already exists, skipping creation`);
+    return { project: { name: projectName } };
   }
 
-  // Start the build
-  const startBuildParams: StartBuildCommandInput = {
-    projectName,
-    environmentVariablesOverride: [
-      {
-        name: 'WEBHOOK_URL',
-        value: `${process.env.APP_URL}/api/webhooks/deployment`,
-        type: 'PLAINTEXT'
+  let environmentVariables = [];
+  try {
+    if (config.environmentVariables) {
+      logger.debug(`Parsing environment variables for ${projectName}`);
+      environmentVariables = typeof config.environmentVariables === 'string'
+        ? JSON.parse(config.environmentVariables)
+        : config.environmentVariables;
+      logger.debug(`Environment variables parsed successfully`, { 
+        count: Array.isArray(environmentVariables) ? environmentVariables.length : Object.keys(environmentVariables).length 
+      });
+    }
+  } catch (error) {
+    logger.error('Error parsing environment variables', error);
+    environmentVariables = [];
+  }
+
+  const envVars = Array.isArray(environmentVariables)
+    ? environmentVariables.map(({ key, value }: { key: string, value: string }) => ({
+        name: key,
+        value,
+        type: 'PLAINTEXT' as EnvironmentVariableType
+      }))
+    : Object.entries(environmentVariables).map(([key, value]) => ({
+        name: key,
+        value: String(value),
+        type: 'PLAINTEXT' as EnvironmentVariableType
+      }));
+
+  envVars.push({
+    name: 'NGROK_AUTH_TOKEN',
+    value: process.env.NGROK_AUTH_TOKEN || '',
+    type: 'PLAINTEXT'
+  });
+  
+  logger.debug(`Configured ${envVars.length} environment variables`);
+
+  // Generate buildspec and log it for debugging
+  const buildspec = generateBuildSpec(config);
+  logger.debug(`Generated buildspec:`, { buildspec });
+
+  // Verify service role
+  if (!process.env.CODEBUILD_SERVICE_ROLE_ARN) {
+    throw new Error('CODEBUILD_SERVICE_ROLE_ARN environment variable is required');
+  }
+  logger.debug(`Using service role: ${process.env.CODEBUILD_SERVICE_ROLE_ARN}`);
+
+  const createProjectParams: CreateProjectCommandInput = {
+    name: projectName,
+    description: `Build project for ${repository.name}`,
+    source: {
+      type: "GITHUB",
+      location: repository.url,
+      buildspec: buildspec,
+      // Add auth type if using GitHub
+      auth: {
+        type: "OAUTH",
+      },
+    },
+    artifacts: { type: "NO_ARTIFACTS" },
+    environment: {
+      type: "LINUX_CONTAINER",
+      image: 'aws/codebuild/standard:6.0',
+      computeType: "BUILD_GENERAL1_MEDIUM",
+      privilegedMode: !!config.hasDocker, // Ensure boolean
+      environmentVariables: envVars
+    },
+    logsConfig: {
+      cloudWatchLogs: {
+        status: "ENABLED",
+        groupName: `/aws/codebuild/${projectName}`,
       }
-    ]
+    },
+    serviceRole: process.env.CODEBUILD_SERVICE_ROLE_ARN,
   };
 
+  logger.info(`Creating CodeBuild project with params:`, {
+    projectName,
+    repoUrl: repository.url,
+    serviceRole: process.env.CODEBUILD_SERVICE_ROLE_ARN,
+    hasDocker: !!config.hasDocker
+  });
+
   try {
+    const command = new CreateProjectCommand(createProjectParams);
+    logger.debug('Sending CreateProjectCommand to AWS');
+    const result = await codeBuildClient.send(command);
+    logger.info(`Successfully created CodeBuild project ${projectName}`, {
+      projectArn: result.project?.arn
+    });
+    return result;
+  } catch (error) {
+    logger.error('Error creating CodeBuild project', error);
+    throw error;
+  }
+}
+
+function generateBuildSpec(config: RepositoryConfig): string {
+  const installCmds = config.installCommand?.trim()
+    ? [config.installCommand]
+    : ['npm install'];
+
+  const buildCmds = config.buildCommand?.trim()
+    ? [config.buildCommand]
+    : ['echo "No build command specified"'];
+
+  const formatCommands = (cmds: string[]) =>
+    cmds.map(cmd => `      - echo "Running: ${cmd}" && ${cmd}`).join('\n');
+
+  const buildspec = `version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 16
+    commands:
+${formatCommands(installCmds)}
+  build:
+    commands:
+${formatCommands(buildCmds)}
+  post_build:
+    commands:
+      - echo "Build completed at $(date)"
+`;
+
+  logger.debug('Generated buildspec:\n' + buildspec);
+  return buildspec;
+}
+
+
+
+export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
+  logger.info(`Starting log stream for build ${buildId}`);
+  const codebuild = new AWS.CodeBuild({ region: process.env.AWS_REGION || 'us-east-1' });
+
+  try {
+    logger.debug(`Fetching build information for ${buildId}`);
+    const buildInfo = await codebuild.batchGetBuilds({ ids: [buildId] }).promise();
+    if (!buildInfo.builds || buildInfo.builds.length === 0) {
+      const error = `Build ${buildId} not found`;
+      logger.error(error, {});
+      throw new Error(error);
+    }
+
+    const build = buildInfo.builds[0];
+    const logGroupName = build.logs?.groupName;
+    const logStreamName = build.logs?.streamName;
+    const projectName = build.projectName;
+
+    logger.debug(`Build info for ${buildId}`, { 
+      projectName, 
+      status: build.buildStatus,
+      logGroupName,
+      logStreamName 
+    });
+
+    if (!logGroupName || !logStreamName) {
+      const error = `Missing log group or log stream for build ${buildId}`;
+      logger.error(error, { logGroupName, logStreamName });
+      throw new Error(error);
+    }
+
+    // Check if WebSocket is still open
+    if (ws.readyState !== ws.OPEN) {
+      logger.error(`WebSocket connection is not open for build ${buildId}`, { readyState: ws.readyState });
+      return;
+    }
+
+    ws.send(JSON.stringify({
+      type: 'info',
+      message: `Starting log stream for build ${buildId} of project ${projectName}`,
+      timestamp: Date.now()
+    }));
+
+    let nextToken: string | undefined;
+
+    const interval = setInterval(async () => {
+      if (ws.readyState !== ws.OPEN) {
+        logger.info(`WebSocket closed for build ${buildId}, stopping log stream`);
+        clearInterval(interval);
+        return;
+      }
+
+      try {
+        logger.debug(`Fetching log events for ${buildId}`, { 
+          logGroupName, 
+          logStreamName,
+          hasNextToken: !!nextToken
+        });
+        
+        const logs = await cloudWatchLogsClient.send(new GetLogEventsCommand({
+          logGroupName,
+          logStreamName,
+          startFromHead: true,
+          nextToken
+        }));
+
+        const eventCount = logs.events?.length || 0;
+        logger.debug(`Received ${eventCount} log events for build ${buildId}`);
+        
+        logs.events?.forEach(event => {
+          if (event.message && ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'log',
+              message: event.message,
+              timestamp: event.timestamp
+            }));
+          }
+        });
+
+        nextToken = logs.nextForwardToken;
+
+        // Check build status
+        logger.debug(`Checking build status for ${buildId}`);
+        const updatedBuild = (await codebuild.batchGetBuilds({ ids: [buildId] }).promise()).builds?.[0];
+        
+        if (updatedBuild) {
+          logger.debug(`Current build status: ${updatedBuild.buildStatus}`);
+          
+          if (['SUCCEEDED', 'FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT'].includes(updatedBuild.buildStatus || '')) {
+            logger.info(`Build ${buildId} completed with status: ${updatedBuild.buildStatus}`);
+            
+            // Send any available phase information
+            if (updatedBuild.phases && updatedBuild.phases.length > 0) {
+              logger.debug(`Build phases for ${buildId}`, { phases: updatedBuild.phases });
+              
+              // Find any failed phases
+              const failedPhases = updatedBuild.phases.filter(phase => 
+                phase.phaseStatus === 'FAILED' || phase.contextStatus
+              );
+              
+              if (failedPhases.length > 0) {
+                failedPhases.forEach(phase => {
+                  ws.send(JSON.stringify({
+                    type: 'error',
+                    message: `Phase ${phase.phaseType} failed: ${phase.contextStatus || 'Unknown error'}`,
+                    timestamp: Date.now()
+                  }));
+                  logger.error(`Build ${buildId} phase ${phase.phaseType} failed`, { 
+                    phaseStatus: phase.phaseStatus,
+                    contextStatus: phase.contextStatus
+                  });
+                });
+              }
+            }
+            
+            ws.send(JSON.stringify({
+              type: 'info',
+              message: `Build ${buildId} completed with status: ${updatedBuild.buildStatus}`,
+              timestamp: Date.now()
+            }));
+            
+            clearInterval(interval);
+            logger.info(`Closing WebSocket connection for build ${buildId} in 5 seconds`);
+            setTimeout(() => { 
+              if (ws.readyState === ws.OPEN) {
+                ws.close();
+                logger.info(`WebSocket connection closed for build ${buildId}`);
+              }
+            }, 5000);
+          }
+        }
+      } catch (err) {
+        logger.error('Error fetching logs', err);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: `Log fetch error: ${err instanceof Error ? err.message : String(err)}`,
+          timestamp: Date.now()
+        }));
+      }
+    }, 3000);
+
+    ws.on('close', () => {
+      logger.info(`WebSocket connection closed by client for build ${buildId}`);
+      clearInterval(interval);
+    });
+
+  } catch (error) {
+    logger.error('Error setting up log stream', error);
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: `Error setting up log stream: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp: Date.now()
+      }));
+      ws.close();
+    }
+  }
+};
+
+export async function triggerBuild(repository: Repository) {
+  logger.info(`Triggering build for repository ${repository.id} (${repository.name})`, {
+    repositoryUrl: repository.url
+  });
+  
+  const projectName = `repo-${repository.id}`;
+  
+  try {
+    // Check if project exists and create if it doesn't
+    const exists = await projectExists(projectName);
+    if (!exists) {
+      logger.info(`Project ${projectName} does not exist. Creating...`);
+      await createCodeBuildProject(repository, repository.config);
+      logger.info(`Project ${projectName} created successfully`);
+    }
+
+    // Double-check project exists now
+    const projectConfirmed = await projectExists(projectName);
+    if (!projectConfirmed) {
+      throw new Error(`Failed to confirm project ${projectName} exists after creation`);
+    }
+
+    // Validate webhook URL
+    if (!process.env.APP_URL) {
+      logger.error('APP_URL environment variable is not set');
+      throw new Error('APP_URL environment variable is required');
+    }
+    
+    const webhookUrl = `${process.env.APP_URL}/api/webhooks/deployment`;
+    logger.debug(`Using webhook URL: ${webhookUrl}`);
+
+    const buildspecOverride = generateBuildSpec(repository.config);
+
+const startBuildParams: StartBuildCommandInput = {
+  projectName,
+  buildspecOverride,
+  environmentVariablesOverride: [
+    {
+      name: 'WEBHOOK_URL',
+      value: webhookUrl,
+      type: 'PLAINTEXT'
+    },
+    {
+      name: 'DEBUG',
+      value: 'true',
+      type: 'PLAINTEXT'
+    },
+    {
+      name: 'BUILD_TIMESTAMP',
+      value: new Date().toISOString(),
+      type: 'PLAINTEXT'
+    }
+  ]
+};
+
+
+    logger.info(`Starting build for project ${projectName}`);
+    logger.debug('StartBuildCommand parameters', startBuildParams);
+    
     const command = new StartBuildCommand(startBuildParams);
     const response = await codeBuildClient.send(command);
     const buildId = response.build?.id;
     
-    // Update repository status in database
+    if (!buildId) {
+      logger.error(`Failed to get buildId from response`, response);
+      throw new Error('No buildId returned from AWS CodeBuild');
+    }
+    
+    logger.info(`Build started successfully with ID: ${buildId}`);
+    logger.debug('Build response', {
+      buildId,
+      status: response.build?.buildStatus,
+      projectName: response.build?.projectName
+    });
+
+    // Update database
+    logger.debug(`Updating repository config in database`, {
+      configId: repository.config.id,
+      buildId,
+      buildStatus: 'BUILDING'
+    });
+    
     await prisma.repositoryConfig.update({
       where: { id: repository.config.id },
-      data: { 
+      data: {
         buildStatus: 'BUILDING',
         lastBuildId: buildId,
         lastBuildStartTime: new Date()
       }
     });
-    
-    return {
-      buildResponse: response,
-      buildId: buildId
-    };
+    logger.info(`Database updated with build information`);
+
+    return { buildResponse: response, buildId };
   } catch (error) {
-    console.error('Error starting build:', error);
+    logger.error('Error starting build', error);
+    
+    // Update database with failed status
+    try {
+      await prisma.repositoryConfig.update({
+        where: { id: repository.config.id },
+        data: {
+          buildStatus: 'FAILED',
+          lastBuildErrorMessage: error instanceof Error ? error.message : String(error)
+        }
+      });
+      logger.info(`Database updated with build failure`);
+    } catch (dbError) {
+      logger.error('Error updating database with build failure', dbError);
+    }
+    
     throw error;
   }
 }

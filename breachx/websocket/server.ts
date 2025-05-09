@@ -1,8 +1,8 @@
 // src/websocket/server.ts
-import { streamBuildLogs } from '@/lib/aws/codebuild';
 import { createServer } from 'http';
 import { parse } from 'url';
 import { WebSocketServer } from 'ws';
+import { streamBuildLogs } from '../lib/aws/codebuild';
 
 // Create HTTP server
 const server = createServer();

@@ -22,6 +22,7 @@ export async function POST(request: Request) {
               dockerConfig: data.config.dockerConfig,
               rootDirectory: data.config.rootDirectory,
               buildCommand: data.config.buildCommand,
+              installCommand: data.config.installCommand,
               runCommand: data.config.runCommand,
               environmentVariables: data.config.environmentVariables || '[]',
               buildStatus: 'PENDING'
