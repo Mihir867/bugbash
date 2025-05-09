@@ -1088,6 +1088,9 @@ export default function Dashboard() {
           <Button
             type="button"
             variant="outline"
+            onClick={() => {
+              setTransitionState("browsing")
+            }}
             className="bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800 transition-colors"
           >
             Back

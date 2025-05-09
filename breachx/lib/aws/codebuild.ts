@@ -2,9 +2,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { CodeBuildClient, StartBuildCommand, CreateProjectCommand, BatchGetProjectsCommand, StartBuildCommandInput, CreateProjectCommandInput, EnvironmentVariableType } from "@aws-sdk/client-codebuild";
+
+// Trigger build for a repository
+// src/lib/aws/codebuild.ts
+// Add these imports at the top of your file
+import { CloudWatchLogsClient, GetLogEventsCommand, DescribeLogStreamsCommand } from "@aws-sdk/client-cloudwatch-logs";
+import { WebSocket } from 'ws';
 import { PrismaClient, Repository, RepositoryConfig } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+
 
 // Initialize AWS CodeBuild client
 const codeBuildClient = new CodeBuildClient({
@@ -34,7 +42,6 @@ export async function createCodeBuildProject(repository: Repository, config: Rep
   // Check if project already exists
   const exists = await projectExists(projectName);
   if (exists) {
-    console.log(`CodeBuild project ${projectName} already exists.`);
     return { project: { name: projectName } };
   }
   
@@ -87,10 +94,8 @@ export async function createCodeBuildProject(repository: Repository, config: Rep
     },
     environment: {
       type: "LINUX_CONTAINER",
-      image: config.hasDocker 
-        ? 'aws/codebuild/amazonlinux2-x86_64-standard:4.0' 
-        : 'aws/codebuild/amazonlinux2-x86_64-standard:3.0',
-      computeType: "BUILD_GENERAL1_SMALL",
+      image: 'aws/codebuild/standard:6.0', // ✅ Node.js 16+ compatible
+      computeType: "BUILD_GENERAL1_MEDIUM",
       privilegedMode: config.hasDocker,
       environmentVariables: envVars
     },
@@ -106,7 +111,6 @@ export async function createCodeBuildProject(repository: Repository, config: Rep
   try {
     const command = new CreateProjectCommand(createProjectParams);
     const response = await codeBuildClient.send(command);
-    console.log(`Created CodeBuild project: ${projectName}`);
     return response;
   } catch (error) {
     console.error('Error creating CodeBuild project:', error);
@@ -158,24 +162,133 @@ function generateBuildSpec(config: RepositoryConfig): string {
     `;
   }
 
-// Trigger build for a repository
-export async function triggerBuild(repositoryId: string) {
-  // Fetch repository with its config
-  const repository = await prisma.repository.findUnique({
-    where: { id: repositoryId },
-    include: { config: true }
-  });
 
-  if (!repository || !repository.config) {
-    throw new Error('Repository or config not found');
+
+// Initialize CloudWatch Logs client
+const cloudWatchLogsClient = new CloudWatchLogsClient({
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
   }
+});
 
+// Function to get log stream name for a build
+async function getLogStreamName(buildId: string): Promise<string | null> {
+  try {
+    // The log stream name usually follows the format: "build-id/build-log"
+    const logGroupName = 'codebuild-logs';
+    const describeStreamsCommand = new DescribeLogStreamsCommand({
+      logGroupName,
+      logStreamNamePrefix: buildId,
+      limit: 1
+    });
+    
+    const response = await cloudWatchLogsClient.send(describeStreamsCommand);
+    
+    if (response.logStreams && response.logStreams.length > 0) {
+      return response.logStreams[0].logStreamName || null;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting log stream name:', error);
+    return null;
+  }
+}
+
+// Function to stream logs to a WebSocket connection
+export async function streamBuildLogs(buildId: string, websocket: WebSocket): Promise<void> {
+  let logStreamName: string | null = null;
+  let nextToken: string | undefined = undefined;
+  let retryCount = 0;
+  const MAX_RETRIES = 30; // Retry for up to ~30 seconds to find the log stream
+  const POLL_INTERVAL = 5000; // Poll for new logs every 5 seconds
+  
+  // First, try to get the log stream name (may take a few seconds to be created)
+  while (!logStreamName && retryCount < MAX_RETRIES) {
+    logStreamName = await getLogStreamName(buildId);
+    
+    if (!logStreamName) {
+      retryCount++;
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+    }
+  }
+  
+  if (!logStreamName) {
+    websocket.send(JSON.stringify({
+      type: 'error',
+      message: 'Could not find log stream for build'
+    }));
+    return;
+  }
+  
+  websocket.send(JSON.stringify({
+    type: 'info',
+    message: `Connected to log stream: ${logStreamName}`
+  }));
+  
+  // Poll for new logs
+  const logGroupName = 'codebuild-logs';
+  const intervalId = setInterval(async () => {
+    try {
+      const getLogsCommand = new GetLogEventsCommand({
+        logGroupName,
+        logStreamName,
+        nextToken,
+        startFromHead: true
+      });
+      
+      const response = await cloudWatchLogsClient.send(getLogsCommand);
+      
+      if (response.events && response.events.length > 0) {
+        // Send each log event to the WebSocket
+        for (const event of response.events) {
+          if (event.message) {
+            websocket.send(JSON.stringify({
+              type: 'log',
+              timestamp: event.timestamp,
+              message: event.message
+            }));
+          }
+        }
+      }
+      
+      // Store the next token for the next poll
+      nextToken = response.nextForwardToken;
+      
+      // Check if the build is complete
+      // This is a simplistic approach - in a real implementation you would
+      // check the build status from CodeBuild API
+      if (response.events?.some(e => e.message?.includes('Build complete'))) {
+        clearInterval(intervalId);
+        websocket.send(JSON.stringify({
+          type: 'info',
+          message: 'Build completed'
+        }));
+      }
+    } catch (error) {
+      console.error('Error streaming logs:', error);
+      websocket.send(JSON.stringify({
+        type: 'error',
+        message: 'Error retrieving logs'
+      }));
+      clearInterval(intervalId);
+    }
+  }, POLL_INTERVAL);
+  
+  // Clean up when the WebSocket closes
+  websocket.on('close', () => {
+    clearInterval(intervalId);
+  });
+}
+
+// Replace your existing triggerBuild function with this one
+export async function triggerBuild(repository: any) {
   const projectName = `repo-${repository.id}`;
 
   // Check if project exists, if not create it
   const exists = await projectExists(projectName);
   if (!exists) {
-    console.log(`CodeBuild project ${projectName} does not exist. Creating it now...`);
     await createCodeBuildProject(repository, repository.config);
   }
 
@@ -190,25 +303,26 @@ export async function triggerBuild(repositoryId: string) {
       }
     ]
   };
-  
 
-  console.log('Starting build with params:', startBuildParams);
   try {
     const command = new StartBuildCommand(startBuildParams);
     const response = await codeBuildClient.send(command);
-    console.log(`Started build for project: ${projectName}`);
+    const buildId = response.build?.id;
     
     // Update repository status in database
     await prisma.repositoryConfig.update({
       where: { id: repository.config.id },
       data: { 
         buildStatus: 'BUILDING',
-        lastBuildId: response.build?.id,
+        lastBuildId: buildId,
         lastBuildStartTime: new Date()
       }
     });
     
-    return response;
+    return {
+      buildResponse: response,
+      buildId: buildId
+    };
   } catch (error) {
     console.error('Error starting build:', error);
     throw error;

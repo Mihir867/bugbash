@@ -14,7 +14,7 @@ export const metadata = {
 export default function RootLayout({ children }:any) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-gray-50 min-h-screen`}>
+      <body className={`${inter.className} bg-black  min-h-screen`}>
         <AuthProvider>
           <Header />
           {children}

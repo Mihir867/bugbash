@@ -1,328 +1,453 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-'use client';
+/* eslint-disable react-hooks/exhaustive-deps */
 
-import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
+"use client"
+
+import type React from "react"
+
+import { useEffect, useState, useRef } from "react"
+import { useSession } from "next-auth/react"
+import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
+import { motion, AnimatePresence } from "framer-motion"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { ArrowLeft, ExternalLink, GitBranch, Play, CheckCircle, XCircle, Clock, Terminal } from "lucide-react"
 
 // Define types for our data structures
 interface RepositoryConfig {
-  id: string;
-  repositoryId: string;
-  hasDocker: boolean;
-  dockerConfig?: string;
-  rootDirectory?: string;
-  buildCommand?: string;
-  runCommand?: string;
-  environmentVariables?: any;
-  buildStatus?: string;
-  lastBuildId?: string;
-  lastBuildStartTime?: string;
-  deploymentUrl?: string;
-  createdAt: string;
-  updatedAt: string;
+  id: string
+  repositoryId: string
+  hasDocker: boolean
+  dockerConfig?: string
+  rootDirectory?: string
+  buildCommand?: string
+  runCommand?: string
+  environmentVariables?: any
+  buildStatus?: string
+  lastBuildId?: string
+  lastBuildStartTime?: string
+  deploymentUrl?: string
+  createdAt: string
+  updatedAt: string
 }
 
 interface Repository {
-  id: string;
-  repoId: string;
-  name: string;
-  description?: string;
-  url: string;
-  userId: string;
-  createdAt: string;
-  updatedAt: string;
-  config?: RepositoryConfig;
-  repository: any;
+  id: string
+  repoId: string
+  name: string
+  description?: string
+  url: string
+  userId: string
+  createdAt: string
+  updatedAt: string
+  config?: RepositoryConfig
+  repository: any
+}
+
+interface LogEntry {
+  timestamp: string
+  message: string
+  level: "info" | "error" | "warning"
 }
 
 export default function RepositoryDetail() {
-  const { repoId } = useParams(); // ✅ This pulls the [repoId] from the URL
-  const { data: session, status } = useSession();
-  const router = useRouter();
+  const { repoId } = useParams()
+  const { data: session, status } = useSession()
+  const router = useRouter()
 
-  const [repository, setRepository] = useState<null | Repository>(null);
-  const [repoConfig, setRepoConfig] = useState<null | RepositoryConfig>(null);
-  const [loading, setLoading] = useState(true);
-  const [buildLoading, setBuildLoading] = useState(false);
-  const [buildMessage, setBuildMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [repository, setRepository] = useState<null | Repository>(null)
+  const [repoConfig, setRepoConfig] = useState<null | RepositoryConfig>(null)
+  const [loading, setLoading] = useState(true)
+  const [buildLoading, setBuildLoading] = useState(false)
+  const [buildMessage, setBuildMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(true)
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [activeTab, setActiveTab] = useState<"details" | "logs">("details")
+
+  const logsEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/sign-in');
+    if (status === "unauthenticated") {
+      router.push("/sign-in")
     }
-  }, [status, router]);
+  }, [status, router])
 
+  
   useEffect(() => {
     if (session && repoId) {
-      fetchRepositoryDetails();
+      fetchRepositoryDetails()
     }
-  }, [session, repoId]);
+  }, [session, repoId])
+
+  // Auto-scroll logs to bottom when new logs are added
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" })
+    }
+  }, [logs])
+
+  // Mock function to simulate fetching logs from AWS
+  // This would be replaced with actual AWS log fetching logic
+  const fetchLogs = async () => {
+    // This is a placeholder - you would implement actual AWS log fetching here
+    const mockLogs: LogEntry[] = [
+      { timestamp: new Date().toISOString(), message: "Initializing build process", level: "info" },
+      { timestamp: new Date().toISOString(), message: "Cloning repository", level: "info" },
+      { timestamp: new Date().toISOString(), message: "Installing dependencies", level: "info" },
+      { timestamp: new Date().toISOString(), message: "Running build command", level: "info" },
+      { timestamp: new Date().toISOString(), message: "Build completed successfully", level: "info" },
+    ]
+
+    setLogs(mockLogs)
+  }
 
   const fetchRepositoryDetails = async () => {
     try {
-      const repoResponse = await fetch(`/api/repoConfig/${repoId}`);
+      const repoResponse = await fetch(`/api/repoConfig/${repoId}`)
       if (!repoResponse.ok) {
-        throw new Error('Repository not found');
+        throw new Error("Repository not found")
       }
 
-      const repoData = await repoResponse.json();
-      setRepository(repoData);
+      const repoData = await repoResponse.json()
+      setRepository(repoData)
 
-      const configResponse = await fetch(`/api/repoConfig/${repoId}`);
+      const configResponse = await fetch(`/api/repoConfig/${repoId}`)
       if (configResponse.ok) {
-        const configData = await configResponse.json();
-        setRepoConfig(configData);
+        const configData = await configResponse.json()
+        setRepoConfig(configData)
       }
+
+      // Fetch logs when repository details are loaded
+      fetchLogs()
     } catch (error) {
-      console.error('Error fetching repository details:', error);
-      router.push('/dashboard');
+      console.error("Error fetching repository details:", error)
+      router.push("/dashboard")
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
-
-  const triggerBuild = async () => {
-    setBuildLoading(true);
-    setBuildMessage(null);
-    
-    try {
-      const response = await fetch(`/api/repositories/${repoId}/build`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        setBuildMessage({ 
-          type: 'success', 
-          text: 'Build triggered successfully! Build ID: ' + data.buildId 
-        });
-        // Refresh the repository config to get updated build status
-        fetchRepositoryDetails();
-      } else {
-        setBuildMessage({ 
-          type: 'error', 
-          text: data.error || 'Failed to trigger build' 
-        });
-      }
-    } catch (error) {
-      console.error('Error triggering build:', error);
-      setBuildMessage({ 
-        type: 'error', 
-        text: 'An error occurred while triggering the build' 
-      });
-    } finally {
-      setBuildLoading(false);
-    }
-  };
-
-  const getBuildStatusBadge = (status?: string) => {
-    if (!status) return null;
-    
-    const statusColors: Record<string, string> = {
-      'PENDING': 'bg-yellow-100 text-yellow-800',
-      'BUILDING': 'bg-blue-100 text-blue-800',
-      'DEPLOYED': 'bg-green-100 text-green-800',
-      'FAILED': 'bg-red-100 text-red-800'
-    };
-    
-    return (
-      <span className={`px-2 py-1 text-xs font-medium rounded ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
-      </span>
-    );
-  };
-
-  if (status === 'loading' || (status === 'authenticated' && loading)) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading repository details...</p>
-        </div>
-      </div>
-    );
   }
 
-  if (!session) return null;
+  const triggerBuild = async () => {
+    setBuildLoading(true)
+    setBuildMessage(null)
+
+    try {
+      const response = await fetch(`/api/repositories/${repoId}/build`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setBuildMessage({
+          type: "success",
+          text: "Build triggered successfully! Build ID: " + data.buildId,
+        })
+        // Refresh the repository config to get updated build status
+        fetchRepositoryDetails()
+        // Close the dialog after successful build trigger
+        setDialogOpen(false)
+      } else {
+        setBuildMessage({
+          type: "error",
+          text: data.error || "Failed to trigger build",
+        })
+      }
+    } catch (error) {
+      console.error("Error triggering build:", error)
+      setBuildMessage({
+        type: "error",
+        text: "An error occurred while triggering the build",
+      })
+    } finally {
+      setBuildLoading(false)
+    }
+  }
+
+  const getBuildStatusBadge = (status?: string) => {
+    if (!status) return null
+
+    const statusVariants: Record<
+      string,
+      { variant: "outline" | "secondary" | "destructive" | "default"; icon: React.ReactNode }
+    > = {
+      PENDING: { variant: "secondary", icon: <Clock className="h-3 w-3 mr-1" /> },
+      BUILDING: { variant: "secondary", icon: <Terminal className="h-3 w-3 mr-1" /> },
+      DEPLOYED: { variant: "default", icon: <CheckCircle className="h-3 w-3 mr-1" /> },
+      FAILED: { variant: "destructive", icon: <XCircle className="h-3 w-3 mr-1" /> },
+    }
+
+    const { variant, icon } = statusVariants[status] || { variant: "outline", icon: null }
+
+    return (
+      <Badge variant={variant} className="flex items-center">
+        {icon}
+        {status}
+      </Badge>
+    )
+  }
+
+  if (status === "loading" || (status === "authenticated" && loading)) {
+    return (
+      <div className="container mx-auto px-4 py-8 min-h-screen bg-background text-foreground flex items-center justify-center">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading repository details...</p>
+        </motion.div>
+      </div>
+    )
+  }
+
+  if (!session) return null
 
   if (!repository) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="bg-white rounded-lg shadow-md p-8 text-center">
-          <h2 className="text-xl font-semibold mb-4">Repository not found</h2>
-          <p className="text-gray-600 mb-6">
-            You may not have access to this repository.
-          </p>
-          <Link
-            href="/dashboard"
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-          >
-            Back to Dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="container mx-auto px-4 pb-8 py-32">
-      <div className="mb-6">
-        <Link
-          href="/dashboard"
-          className="text-blue-600 hover:text-blue-800 flex items-center"
+      <div className="container mx-auto px-4 py-8 min-h-screen bg-background text-foreground">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="bg-card rounded-lg shadow-md p-8 text-center"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd" />
-          </svg>
-          Back to Dashboard
-        </Link>
+          <h2 className="text-xl font-semibold mb-4">Repository not found</h2>
+          <p className="text-muted-foreground mb-6">You may not have access to this repository.</p>
+          <Button asChild>
+            <Link href="/dashboard">Back to Dashboard</Link>
+          </Button>
+        </motion.div>
       </div>
-      
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="p-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-2xl font-bold mb-2">{repository.repository.name}</h1>
-              
-              {repository.repository.description && (
-                <p className="text-gray-600 mb-4">{repository.repository.description}</p>
-              )}
-            </div>
-            
-            <button
-              onClick={triggerBuild}
-              disabled={buildLoading}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {buildLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Building...
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Trigger Build
-                </>
-              )}
-            </button>
-          </div>
-          
-          {buildMessage && (
-            <div className={`mt-4 p-3 rounded ${buildMessage.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-              {buildMessage.text}
-            </div>
-          )}
-          
-          <div className="flex flex-wrap gap-2 mb-6 mt-4">
-            <a
-              href={repository.repository.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-md inline-flex items-center"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              View on GitHub
-            </a>
-            
-            {repoConfig?.deploymentUrl && (
-              <a
-                href={repoConfig.deploymentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-green-100 hover:bg-green-200 text-green-800 px-4 py-2 rounded-md inline-flex items-center"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                View Deployment
-              </a>
-            )}
-          </div>
-          
-          <div className="border-t pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">Repository Information</h2>
-              {repoConfig?.buildStatus && getBuildStatusBadge(repoConfig.buildStatus)}
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    )
+  }
+
+  return (
+    <div className=" max-w-7xl mx-auto px-4 pb-8 pt-20 min-h-screen bg-black text-foreground">
+      <AnimatePresence>
+        {dialogOpen && (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Trigger Build</DialogTitle>
+                <DialogDescription>
+                  Do you want to trigger a new build for {repository.repository.name}?
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="flex flex-col sm:flex-row sm:justify-between gap-2">
+                <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                  Not now
+                </Button>
+                <Button onClick={triggerBuild} disabled={buildLoading} className="flex items-center gap-2">
+                  {buildLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-background"></div>
+                      Building...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" />
+                      Trigger Build
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+      </AnimatePresence>
+
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <div className="mb-6">
+          <Button variant="ghost" asChild className="gap-1">
+            <Link href="/dashboard">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Dashboard
+            </Link>
+          </Button>
+        </div>
+
+        <Card className="overflow-hidden min-h-[800px]">
+          <CardHeader className="pb-4">
+            <div className="flex justify-between items-start">
               <div>
-                <p className="text-gray-600">Added on</p>
-                <p className="font-medium">{new Date(repository.createdAt).toLocaleDateString()}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Last updated</p>
-                <p className="font-medium">{new Date(repository.updatedAt).toLocaleDateString()}</p>
-              </div>
-              {repoConfig?.lastBuildStartTime && (
-                <div>
-                  <p className="text-gray-600">Last build</p>
-                  <p className="font-medium">{new Date(repoConfig.lastBuildStartTime).toLocaleString()}</p>
-                </div>
-              )}
-              {repoConfig?.lastBuildId && (
-                <div>
-                  <p className="text-gray-600">Build ID</p>
-                  <p className="font-medium">{repoConfig.lastBuildId}</p>
-                </div>
-              )}
-            </div>
-            
-            {repoConfig && (
-              <div className="border-t pt-4">
-                <h2 className="text-lg font-semibold mb-3">Build Configuration</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-gray-600">Root Directory</p>
-                    <p className="font-medium">{repoConfig.rootDirectory || 'Not specified'}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Build Command</p>
-                    <p className="font-medium">{repoConfig.buildCommand || 'Not specified'}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Run Command</p>
-                    <p className="font-medium">{repoConfig.runCommand || 'Not specified'}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Docker</p>
-                    <p className="font-medium">{repoConfig.hasDocker ? 'Enabled' : 'Disabled'}</p>
-                  </div>
-                </div>
-                
-                {repoConfig.environmentVariables && (
-                  <div className="mt-4">
-                    <p className="text-gray-600 mb-2">Environment Variables</p>
-                    <div className="bg-gray-50 p-3 rounded-md">
-                      {Object.entries(repoConfig.environmentVariables).map(([key]) => (
-                        <div key={key} className="flex items-center mb-1 last:mb-0">
-                          <span className="font-medium mr-2">{key}:</span>
-                          <span className="text-gray-600">●●●●●●●●</span>
-                        </div>
-                      ))}
-                      {Object.entries(repoConfig.environmentVariables).length === 0 && (
-                        <p className="text-gray-500 italic">No environment variables configured</p>
-                      )}
-                    </div>
-                  </div>
+                <CardTitle className="text-2xl">{repository.repository.name}</CardTitle>
+
+                {repository.repository.description && (
+                  <CardDescription className="mt-2">{repository.repository.description}</CardDescription>
                 )}
               </div>
+
+              
+            </div>
+
+            {buildMessage && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`mt-4 p-3 rounded ${buildMessage.type === "success" ? "bg-green-900/20 text-green-400" : "bg-red-900/20 text-red-400"}`}
+              >
+                {buildMessage.text}
+              </motion.div>
             )}
-          </div>
-        </div>
-      </div>
+
+            <div className="flex flex-wrap gap-2 mt-4">
+              <Button variant="outline" asChild className="gap-2">
+                <a href={repository.repository.url} target="_blank" rel="noopener noreferrer">
+                  <GitBranch className="h-4 w-4" />
+                  View on GitHub
+                </a>
+              </Button>
+
+              {repoConfig?.deploymentUrl && (
+                <Button variant="outline" asChild className="gap-2">
+                  <a href={repoConfig.deploymentUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4" />
+                    View Deployment
+                  </a>
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            <div className="border-t border-border pt-4">
+              <div className="flex mb-6 border-b border-border">
+                <Button
+                  variant={activeTab === "details" ? "default" : "ghost"}
+                  onClick={() => setActiveTab("details")}
+                  className="rounded-none rounded-t-lg"
+                >
+                  Repository Details
+                </Button>
+                <Button
+                  variant={activeTab === "logs" ? "default" : "ghost"}
+                  onClick={() => setActiveTab("logs")}
+                  className="rounded-none rounded-t-lg"
+                >
+                  Build Logs
+                </Button>
+              </div>
+
+              {activeTab === "details" && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-lg font-semibold">Repository Information</h2>
+                    {repoConfig?.buildStatus && getBuildStatusBadge(repoConfig.buildStatus)}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                      <p className="text-muted-foreground">Added on</p>
+                      <p className="font-medium">{new Date(repository.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Last updated</p>
+                      <p className="font-medium">{new Date(repository.updatedAt).toLocaleDateString()}</p>
+                    </div>
+                    {repoConfig?.lastBuildStartTime && (
+                      <div>
+                        <p className="text-muted-foreground">Last build</p>
+                        <p className="font-medium">{new Date(repoConfig.lastBuildStartTime).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {repoConfig?.lastBuildId && (
+                      <div>
+                        <p className="text-muted-foreground">Build ID</p>
+                        <p className="font-medium">{repoConfig.lastBuildId}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {repoConfig && (
+                    <div className="border-t border-border pt-4">
+                      <h2 className="text-lg font-semibold mb-3">Build Configuration</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-muted-foreground">Root Directory</p>
+                          <p className="font-medium">{repoConfig.rootDirectory || "Not specified"}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Build Command</p>
+                          <p className="font-medium">{repoConfig.buildCommand || "Not specified"}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Run Command</p>
+                          <p className="font-medium">{repoConfig.runCommand || "Not specified"}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Docker</p>
+                          <p className="font-medium">{repoConfig.hasDocker ? "Enabled" : "Disabled"}</p>
+                        </div>
+                      </div>
+
+                      {repoConfig.environmentVariables && (
+                        <div className="mt-4">
+                          <p className="text-muted-foreground mb-2">Environment Variables</p>
+                          <div className="bg-card/50 p-3 rounded-md border border-border">
+                            {Object.entries(repoConfig.environmentVariables).map(([key]) => (
+                              <div key={key} className="flex items-center mb-1 last:mb-0">
+                                <span className="font-medium mr-2">{key}:</span>
+                                <span className="text-muted-foreground">●●●●●●●●</span>
+                              </div>
+                            ))}
+                            {Object.entries(repoConfig.environmentVariables).length === 0 && (
+                              <p className="text-muted-foreground italic">No environment variables configured</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {activeTab === "logs" && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="h-[400px] overflow-y-auto bg-black/50 rounded-md p-4 font-mono text-sm"
+                >
+                  {logs.length > 0 ? (
+                    logs.map((log, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className={`mb-1 ${
+                          log.level === "error"
+                            ? "text-red-400"
+                            : log.level === "warning"
+                              ? "text-yellow-400"
+                              : "text-green-400"
+                        }`}
+                      >
+                        <span className="text-muted-foreground">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{" "}
+                        {log.message}
+                      </motion.div>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground">No logs available. Trigger a build to see logs.</p>
+                  )}
+                  <div ref={logsEndRef} />
+                </motion.div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
-  );
+  )
 }
