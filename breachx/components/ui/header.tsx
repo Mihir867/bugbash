@@ -8,11 +8,14 @@ import { motion, useScroll, AnimatePresence } from "framer-motion"
 import Image from "next/image"
 import { Menu, X } from "lucide-react"
 import { Button } from "./button"
+import { WalletButton } from "./wallet-button"
+import { useWallet } from "@solana/wallet-adapter-react"
 
 export default function Header() {
   const { data: session, status } = useSession()
   const loading = status === "loading"
   const [isOpen, setIsOpen] = useState(false)
+  const { connected } = useWallet()
 
   const { scrollY } = useScroll()
   const [hidden, setHidden] = useState(false)
@@ -82,11 +85,14 @@ export default function Header() {
                 {!loading && !session && (
                   <Button
                     onClick={() => signIn("github")}
-                    className="bg-blue-600/80 cursor-pointer hover:bg-blue-700/90 text-white px-4 py-2 rounded-md backdrop-blur-sm transition-all"
+                    className="bg-blue-600/80 cursor-pointer hover:bg-blue-700/90 text-white px-4 py-2 rounded-md backdrop-blur-sm transition-all mr-2"
                   >
                     Sign In with GitHub
                   </Button>
                 )}
+
+                {/* Display wallet connect button */}
+                <WalletButton />
 
                 {session && (
                   <div className="flex items-center gap-3 ml-2">
@@ -102,24 +108,24 @@ export default function Header() {
                       </div>
                     )}
                     <span className="text-gray-300">{session.user?.name}</span>
-                    {/* <Button
-                      onClick={() => signOut()}
-                      className="bg-red-600/70 cursor-pointer hover:bg-red-700/80 text-white px-3 py-1 rounded-md text-sm transition-all"
-                    >
-                      Sign Out
-                    </Button> */}
                   </div>
                 )}
               </nav>
 
               {/* Mobile Menu Button */}
-              <Button
-                onClick={() => setIsOpen(!isOpen)}
-                className="md:hidden text-white z-10"
-                aria-label={isOpen ? "Close menu" : "Open menu"}
-              >
-                {isOpen ? <X size={24} /> : <Menu size={24} />}
-              </Button>
+              <div className="md:hidden flex items-center">
+                {/* Add wallet button for mobile */}
+                <div className="mr-2">
+                  <WalletButton />
+                </div>
+                <Button
+                  onClick={() => setIsOpen(!isOpen)}
+                  className="text-white z-10"
+                  aria-label={isOpen ? "Close menu" : "Open menu"}
+                >
+                  {isOpen ? <X size={24} /> : <Menu size={24} />}
+                </Button>
+              </div>
             </div>
           </header>
         </div>
