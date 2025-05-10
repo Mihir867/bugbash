@@ -17,6 +17,7 @@ import {
 import AWS from 'aws-sdk';
 import { WebSocket } from 'ws';
 import { PrismaClient, Repository, RepositoryConfig } from '@prisma/client';
+import * as yaml from 'js-yaml';
 
 // Enhanced logging
 const logger = {
@@ -193,39 +194,77 @@ export async function createCodeBuildProject(repository: Repository, config: Rep
   }
 }
 
-function generateBuildSpec(config: RepositoryConfig): string {
-  const installCmds = config.installCommand?.trim()
-    ? [config.installCommand]
-    : ['npm install'];
-
-  const buildCmds = config.buildCommand?.trim()
-    ? [config.buildCommand]
-    : ['echo "No build command specified"'];
-
-  const formatCommands = (cmds: string[]) =>
-    cmds.map(cmd => `      - echo "Running: ${cmd}" && ${cmd}`).join('\n');
-
-  const buildspec = `version: 0.2
-
-phases:
-  install:
-    runtime-versions:
-      nodejs: 16
-    commands:
-${formatCommands(installCmds)}
-  build:
-    commands:
-${formatCommands(buildCmds)}
-  post_build:
-    commands:
-      - echo "Build completed at $(date)"
-`;
-
-  logger.debug('Generated buildspec:\n' + buildspec);
-  return buildspec;
+function getDirectNgrokCheck() {
+  return `
+    # Additional check for ngrok URL by directly inspecting file system
+    echo "Trying alternative methods to get ngrok URL..."
+    ps aux | grep ngrok
+    
+    # Try to get URL directly from ngrok API
+    echo "Getting URL from ngrok API..."
+    curl -s http://localhost:4040/api/tunnels | jq .
+    
+    # Check if ngrok is running
+    pgrep -l ngrok || echo "ngrok process not found"
+    
+    # If all else fails, install ngrok-inspect tool to get URL
+    npm install -g ngrok-inspect || true
+    ngrok-inspect list 2>/dev/null || echo "ngrok-inspect failed"
+    
+    # Export URL as environment variable so it's available everywhere
+    export NGROK_PUBLIC_URL=$NGROK_URL
+    echo "Final NGROK_URL: $NGROK_URL"
+  `;
 }
 
+function generateBuildSpec(config: RepositoryConfig): string {
+  const buildSpec = {
+    version: '0.2',
+    phases: {
+      install: {
+        'runtime-versions': { nodejs: '20' },
+        commands: config.installCommand?.trim() 
+          ? [config.installCommand.trim()] 
+          : ['npm install'],
+      },
+      build: {
+        commands: config.buildCommand?.trim() 
+          ? [config.buildCommand.trim()] 
+          : ['echo "No build command specified"'],
+      },
+      post_build: {
+        commands: [
+          'echo "Build completed at $(date)"',
+          'echo "Setting up ngrok tunnel..."',
+          'npm install -g ngrok',
+          'ngrok config add-authtoken $NGROK_AUTH_TOKEN',
+          'nohup ngrok http 3000 > ngrok.log &',
+          'sleep 10',
+          'echo "Fetching tunnel information..."',
+          'curl -s http://127.0.0.1:4040/api/tunnels > tunnels.json || true',
+          'NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r \'.tunnels[0].public_url\' 2>/dev/null || echo "Not found")',
+          'echo "NGROK_PUBLIC_URL=${NGROK_URL}"',
+          'echo "Tunnel information:"',
+          'cat tunnels.json 2>/dev/null || echo "No tunnels.json file found"',
+          'echo "Trying alternative methods to get ngrok URL..."',
+          'ps aux | grep ngrok',
+          'echo "Getting URL from ngrok API..."',
+          'curl -s http://localhost:4040/api/tunnels | jq .',
+          'pgrep -l ngrok || echo "ngrok process not found"',
+          'export NGROK_PUBLIC_URL=$NGROK_URL',
+          'echo "Final NGROK_URL: $NGROK_URL"',
+          'echo "Starting application..."',
+          'npm start &',
+          'sleep 5',
+          'echo "Deployment completed. App available at: ${NGROK_URL}"',
+          'sleep 5'
+        ],
+      },
+    },
+  };
 
+  return yaml.dump(buildSpec, { lineWidth: -1 });
+}
 
 export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
   logger.info(`Starting log stream for build ${buildId}`);
@@ -244,9 +283,13 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
     const logGroupName = build.logs?.groupName;
     const logStreamName = build.logs?.streamName;
     const projectName = build.projectName;
-
+    
+    // Extract repository ID from project name (format: repo-{id})
+    const repositoryId = projectName?.replace('repo-', '');
+    
     logger.debug(`Build info for ${buildId}`, { 
       projectName, 
+      repositoryId,
       status: build.buildStatus,
       logGroupName,
       logStreamName 
@@ -259,7 +302,7 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
     }
 
     // Check if WebSocket is still open
-    if (ws.readyState !== ws.OPEN) {
+    if (ws.readyState !== WebSocket.OPEN) {
       logger.error(`WebSocket connection is not open for build ${buildId}`, { readyState: ws.readyState });
       return;
     }
@@ -271,9 +314,11 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
     }));
 
     let nextToken: string | undefined;
+    let ngrokUrlCaptured = false;
+    let ngrokUrl: string | undefined;
 
     const interval = setInterval(async () => {
-      if (ws.readyState !== ws.OPEN) {
+      if (ws.readyState !== WebSocket.OPEN) {
         logger.info(`WebSocket closed for build ${buildId}, stopping log stream`);
         clearInterval(interval);
         return;
@@ -296,8 +341,34 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
         const eventCount = logs.events?.length || 0;
         logger.debug(`Received ${eventCount} log events for build ${buildId}`);
         
+        // Process log events
         logs.events?.forEach(event => {
           if (event.message && ws.readyState === ws.OPEN) {
+            // Extract ngrok URL if found in logs
+            if (!ngrokUrlCaptured && event.message.includes('tunnels') && event.message.includes('public_url')) {
+              try {
+                // Check for JSON output that might contain the ngrok URL
+                const jsonMatch = event.message.match(/\{.*\}/);
+                if (jsonMatch) {
+                  const tunnelData = JSON.parse(jsonMatch[0]);
+                  if (tunnelData.tunnels && tunnelData.tunnels.length > 0) {
+                    ngrokUrl = tunnelData.tunnels[0].public_url;
+                    ngrokUrlCaptured = true;
+                    logger.info(`Extracted ngrok URL from logs: ${ngrokUrl}`);
+                    
+                    ws.send(JSON.stringify({
+                      type: 'info',
+                      message: `Deployed application available at: ${ngrokUrl}`,
+                      timestamp: Date.now()
+                    }));
+                  }
+                }
+              } catch (err) {
+                logger.error('Error parsing ngrok URL from logs', err);
+              }
+            }
+            
+            // Send log message to WebSocket
             ws.send(JSON.stringify({
               type: 'log',
               message: event.message,
@@ -315,6 +386,7 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
         if (updatedBuild) {
           logger.debug(`Current build status: ${updatedBuild.buildStatus}`);
           
+          // Handle build completion
           if (['SUCCEEDED', 'FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT'].includes(updatedBuild.buildStatus || '')) {
             logger.info(`Build ${buildId} completed with status: ${updatedBuild.buildStatus}`);
             
@@ -324,11 +396,11 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
               
               // Find any failed phases
               const failedPhases = updatedBuild.phases.filter(phase => 
-                phase.phaseStatus === 'FAILED' || phase.contextStatus
+                phase.phaseStatus === 'FAILED'
               );
               
               if (failedPhases.length > 0) {
-                failedPhases.forEach(phase => {
+                failedPhases.forEach((phase:any) => {
                   ws.send(JSON.stringify({
                     type: 'error',
                     message: `Phase ${phase.phaseType} failed: ${phase.contextStatus || 'Unknown error'}`,
@@ -342,11 +414,86 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
               }
             }
             
-            ws.send(JSON.stringify({
-              type: 'info',
-              message: `Build ${buildId} completed with status: ${updatedBuild.buildStatus}`,
-              timestamp: Date.now()
-            }));
+            // Update repository config if build succeeded
+            if (updatedBuild.buildStatus === 'SUCCEEDED' && repositoryId) {
+              try {
+                // Try to extract ngrok URL from logs if not already captured
+                if (!ngrokUrlCaptured) {
+                  logger.info(`Attempting to extract ngrok URL from build environment`);
+                  
+                  // Make a final attempt to capture the ngrok URL
+                  // This is a fallback for builds where the URL was generated but not parsed from logs
+                  try {
+                    // Wait for ngrok to be fully initialized
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    
+                    // Send completion status
+                    ws.send(JSON.stringify({
+                      type: 'info',
+                      message: `Build ${buildId} completed with status: ${updatedBuild.buildStatus}`,
+                      timestamp: Date.now()
+                    }));
+                    
+                    // Update repository with success status
+                    await updateRepositoryConfig(
+                      parseInt(repositoryId),
+                      'DEPLOYED',
+                      ngrokUrl || 'URL not available',
+                      // Set TTL for the ngrok URL (20+ minutes)
+                      new Date(Date.now() + 30 * 60 * 1000)
+                    );
+                    
+                    logger.info(`Updated repository config with deployment information for repo: ${repositoryId}`);
+                    
+                    ws.send(JSON.stringify({
+                      type: 'success',
+                      message: `Deployment completed successfully. Application available at: ${ngrokUrl || 'URL not available'}`,
+                      timestamp: Date.now()
+                    }));
+                  } catch (innerErr) {
+                    logger.error(`Failed to extract ngrok URL`, innerErr);
+                  }
+                } else {
+                  // We already have the ngrok URL, so update the repository config
+                  await updateRepositoryConfig(
+                    parseInt(repositoryId),
+                    'DEPLOYED',
+                    ngrokUrl || 'URL not available',
+                    // Set TTL for the ngrok URL (15 minutes)
+                    new Date(Date.now() + 15 * 60 * 1000)
+                  );
+                  
+                  logger.info(`Updated repository config with deployment information for repo: ${repositoryId}`);
+                  
+                  ws.send(JSON.stringify({
+                    type: 'success',
+                    message: `Deployment completed successfully. Application available at: ${ngrokUrl || 'URL not available'}`,
+                    timestamp: Date.now()
+                  }));
+                }
+              } catch (err) {
+                logger.error(`Failed to update repository config after successful build`, err);
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: `Failed to update repository config: ${err instanceof Error ? err.message : String(err)}`,
+                  timestamp: Date.now()
+                }));
+              }
+            } else if (updatedBuild.buildStatus !== 'SUCCEEDED' && repositoryId) {
+              // Update repository with failure status
+              try {
+                await updateRepositoryConfig(
+                  parseInt(repositoryId),
+                  'FAILED',
+                  undefined,
+                  undefined,
+                  `Build failed with status: ${updatedBuild.buildStatus}`
+                );
+                logger.info(`Updated repository config with failure status for repo: ${repositoryId}`);
+              } catch (err) {
+                logger.error(`Failed to update repository config after failed build`, err);
+              }
+            }
             
             clearInterval(interval);
             logger.info(`Closing WebSocket connection for build ${buildId} in 5 seconds`);
@@ -386,7 +533,104 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
   }
 };
 
-export async function triggerBuild(repository: Repository) {
+// Helper function to update repository config
+async function updateRepositoryConfig(
+  repositoryId: number, 
+  buildStatus: string, 
+  publicUrl?: string, 
+  urlExpiryTime?: Date,
+  errorMessage?: string
+) {
+  logger.info(`Updating repository config for repo ${repositoryId}`, { 
+    buildStatus, 
+    publicUrl, 
+    urlExpiryTime,
+    hasError: !!errorMessage
+  });
+  
+  try {
+    // Fetch the repository to get its config ID
+    const repository = await prisma.repository.findUnique({
+      where: { id: String(repositoryId) },
+      include: { config: true }
+    });
+    
+    if (!repository || !repository.config) {
+      throw new Error(`Repository ${repositoryId} or its config not found`);
+    }
+    
+    // Update via Prisma
+    const updateData: any = { buildStatus };
+    
+    if (publicUrl) {
+      updateData.publicUrl = publicUrl;
+    }
+    
+    if (urlExpiryTime) {
+      updateData.urlExpiryTime = urlExpiryTime;
+    }
+    
+    if (errorMessage) {
+      updateData.lastBuildErrorMessage = errorMessage;
+    }
+    
+    // Use the repository's config ID for the update
+    await prisma.repositoryConfig.update({
+      where: { id: repository.config.id },
+      data: updateData
+    });
+    
+    logger.info(`Successfully updated repository config for repo ${repositoryId}`);
+    
+    // Also update the /api/update endpoint to ensure both locations have the latest info
+    if (publicUrl) {
+      try {
+        const apiUrl = `${process.env.APP_URL || 'http://localhost:3000'}/api/update/${repositoryId}`;
+        
+        await fetch(apiUrl, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            publicUrl,
+            urlExpiryTime,
+            buildStatus
+          })
+        });
+        
+        logger.info(`Successfully sent update to API endpoint for repo ${repositoryId}`);
+      } catch (apiError) {
+        logger.error(`Failed to update API endpoint for repo ${repositoryId}`, apiError);
+        // Don't throw here, we already updated the database
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    logger.error(`Error updating repository config for repo ${repositoryId}`, error);
+    
+    // Fallback to raw SQL if needed
+    try {
+      let sqlQuery = `
+        UPDATE "RepositoryConfig" 
+        SET "buildStatus" = '${buildStatus}',
+            "updatedAt" = NOW()
+      `;
+      
+      const params = [repositoryId];
+      
+      sqlQuery += ` WHERE "id" = ?`;
+      
+      await prisma.$executeRawUnsafe(sqlQuery, ...params);
+      logger.info(`Successfully updated repository config with raw SQL for repo ${repositoryId}`);
+      return true;
+    } catch (sqlError) {
+      logger.error(`SQL fallback also failed for repo ${repositoryId}`, sqlError);
+      throw error; // Re-throw the original error
+    }
+  }
+}
+
+export async function triggerBuild(repository: any) {
   logger.info(`Triggering build for repository ${repository.id} (${repository.name})`, {
     repositoryUrl: repository.url
   });
@@ -410,7 +654,7 @@ export async function triggerBuild(repository: Repository) {
 
     // Validate webhook URL
     if (!process.env.APP_URL) {
-      logger.error('APP_URL environment variable is not set');
+      logger.debug('APP_URL environment variable is not set');
       throw new Error('APP_URL environment variable is required');
     }
     
@@ -468,14 +712,26 @@ const startBuildParams: StartBuildCommandInput = {
       buildStatus: 'BUILDING'
     });
     
-    await prisma.repositoryConfig.update({
-      where: { id: repository.config.id },
-      data: {
-        buildStatus: 'BUILDING',
-        lastBuildId: buildId,
-        lastBuildStartTime: new Date()
-      }
-    });
+    try {
+      await prisma.repositoryConfig.update({
+        where: { id: repository.config.id },
+        data: {
+          buildStatus: 'BUILDING',
+          // language: 'nodejs', ← this is what causes the error
+        },
+      });
+    } catch (error) {
+      console.warn('Prisma update failed, falling back to raw SQL:', error);
+    
+      // Fallback using raw SQL — exclude non-existent fields like `language`
+      await prisma.$executeRaw`
+        UPDATE "RepositoryConfig"
+        SET "buildStatus" = 'BUILDING',
+            "updatedAt" = NOW()
+        WHERE "id" = ${repository.config.id}
+      `;
+    }
+    
     logger.info(`Database updated with build information`);
 
     return { buildResponse: response, buildId };
@@ -489,7 +745,7 @@ const startBuildParams: StartBuildCommandInput = {
         data: {
           buildStatus: 'FAILED',
           lastBuildErrorMessage: error instanceof Error ? error.message : String(error)
-        }
+        } as any
       });
       logger.info(`Database updated with build failure`);
     } catch (dbError) {

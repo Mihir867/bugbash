@@ -46,6 +46,27 @@ CREATE TABLE "VerificationToken" (
 );
 
 -- CreateTable
+CREATE TABLE "RepositoryConfig" (
+    "id" TEXT NOT NULL,
+    "repositoryId" TEXT NOT NULL,
+    "hasDocker" BOOLEAN NOT NULL DEFAULT false,
+    "dockerConfig" TEXT,
+    "rootDirectory" TEXT,
+    "buildCommand" TEXT,
+    "runCommand" TEXT,
+    "installCommand" TEXT,
+    "environmentVariables" JSONB,
+    "buildStatus" TEXT,
+    "lastBuildId" TEXT,
+    "lastBuildStartTime" TIMESTAMP(3),
+    "deploymentUrl" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RepositoryConfig_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Repository" (
     "id" TEXT NOT NULL,
     "repoId" TEXT NOT NULL,
@@ -57,22 +78,6 @@ CREATE TABLE "Repository" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Repository_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "RepositoryConfig" (
-    "id" TEXT NOT NULL,
-    "repositoryId" TEXT NOT NULL,
-    "hasDocker" BOOLEAN NOT NULL DEFAULT false,
-    "dockerConfig" TEXT,
-    "rootDirectory" TEXT,
-    "buildCommand" TEXT,
-    "runCommand" TEXT,
-    "environmentVariables" JSONB,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "RepositoryConfig_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -91,10 +96,10 @@ CREATE UNIQUE INDEX "VerificationToken_token_key" ON "VerificationToken"("token"
 CREATE UNIQUE INDEX "VerificationToken_identifier_token_key" ON "VerificationToken"("identifier", "token");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Repository_userId_repoId_key" ON "Repository"("userId", "repoId");
+CREATE UNIQUE INDEX "RepositoryConfig_repositoryId_key" ON "RepositoryConfig"("repositoryId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "RepositoryConfig_repositoryId_key" ON "RepositoryConfig"("repositoryId");
+CREATE UNIQUE INDEX "Repository_userId_repoId_key" ON "Repository"("userId", "repoId");
 
 -- AddForeignKey
 ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -103,7 +108,7 @@ ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId"
 ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Repository" ADD CONSTRAINT "Repository_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "RepositoryConfig" ADD CONSTRAINT "RepositoryConfig_repositoryId_fkey" FOREIGN KEY ("repositoryId") REFERENCES "Repository"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "RepositoryConfig" ADD CONSTRAINT "RepositoryConfig_repositoryId_fkey" FOREIGN KEY ("repositoryId") REFERENCES "Repository"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Repository" ADD CONSTRAINT "Repository_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
