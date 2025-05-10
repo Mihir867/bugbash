@@ -7,8 +7,8 @@ import {
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { Anchor } from "@/anchor/target/types/anchor";
-import idl from "@/anchor/target/idl/anchor.json";
+import { Anchor } from "./contract/types/anchor";
+import idl from "./contract/idl/anchor.json";
 
 export const PROGRAM_ID = "CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw";
 
@@ -99,7 +99,7 @@ export async function storeVulnerabilityReport(
     const tx = await program.methods
       .storeVulnerabilityReport(repositoryId, reportUrl)
       .accounts({
-        // @ts-ignore - Account property names from IDL
+        // @ts-expect-error - Account property names from IDL
         vulnerabilityReport: vulnerabilityReportPda,
         reporter: wallet.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -154,12 +154,12 @@ export async function getUserVulnerabilityReports(
   try {
     const reports = await program.account.vulnerabilityReport.all();
     const filteredReports = reports.filter(
-      (item: any) => item.account.reporter.toBase58() === userPubkey.toBase58()
+      (item) => item.account.reporter.toBase58() === userPubkey.toBase58()
     );
 
     const connection = program.provider.connection;
     const reportsWithTransactions = await Promise.all(
-      filteredReports.map(async (item: any) => {
+      filteredReports.map(async (item) => {
         const transactionId = await findTransactionSignature(
           connection,
           item.publicKey

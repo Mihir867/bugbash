@@ -1,0 +1,142 @@
+{
+    "address": "CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw",
+    "metadata": {
+      "name": "anchor",
+      "version": "0.1.0",
+      "spec": "0.1.0",
+      "description": "Created with Anchor"
+    },
+    "instructions": [
+      {
+        "name": "initialize",
+        "discriminator": [
+          175,
+          175,
+          109,
+          31,
+          13,
+          152,
+          155,
+          237
+        ],
+        "accounts": [],
+        "args": []
+      },
+      {
+        "name": "store_vulnerability_report",
+        "discriminator": [
+          197,
+          52,
+          219,
+          240,
+          56,
+          52,
+          185,
+          4
+        ],
+        "accounts": [
+          {
+            "name": "vulnerability_report",
+            "writable": true,
+            "pda": {
+              "seeds": [
+                {
+                  "kind": "const",
+                  "value": [
+                    118,
+                    117,
+                    108,
+                    110,
+                    101,
+                    114,
+                    97,
+                    98,
+                    105,
+                    108,
+                    105,
+                    116,
+                    121,
+                    95,
+                    114,
+                    101,
+                    112,
+                    111,
+                    114,
+                    116
+                  ]
+                },
+                {
+                  "kind": "account",
+                  "path": "reporter"
+                },
+                {
+                  "kind": "arg",
+                  "path": "repository_id"
+                }
+              ]
+            }
+          },
+          {
+            "name": "reporter",
+            "writable": true,
+            "signer": true
+          },
+          {
+            "name": "system_program",
+            "address": "11111111111111111111111111111111"
+          }
+        ],
+        "args": [
+          {
+            "name": "repository_id",
+            "type": "string"
+          },
+          {
+            "name": "report_url",
+            "type": "string"
+          }
+        ]
+      }
+    ],
+    "accounts": [
+      {
+        "name": "VulnerabilityReport",
+        "discriminator": [
+          219,
+          119,
+          63,
+          125,
+          101,
+          147,
+          0,
+          122
+        ]
+      }
+    ],
+    "types": [
+      {
+        "name": "VulnerabilityReport",
+        "type": {
+          "kind": "struct",
+          "fields": [
+            {
+              "name": "repository_id",
+              "type": "string"
+            },
+            {
+              "name": "report_url",
+              "type": "string"
+            },
+            {
+              "name": "reporter",
+              "type": "pubkey"
+            },
+            {
+              "name": "timestamp",
+              "type": "i64"
+            }
+          ]
+        }
+      }
+    ]
+  }

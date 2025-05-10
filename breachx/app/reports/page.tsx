@@ -6,13 +6,10 @@ import {
   useWallet,
   useAnchorWallet,
 } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
-import * as anchor from "@coral-xyz/anchor";
 import {
   getProgram,
   storeVulnerabilityReport,
   getUserVulnerabilityReports,
-  VulnerabilityReport,
   ReportWithTransaction,
 } from "@/lib/anchor-program";
 import { Button } from "@/components/ui/button";
@@ -86,7 +83,7 @@ export default function DemoPage() {
     }
 
     loadUserReports();
-  }, [publicKey, wallet, connection, txSignature]);
+  }, [publicKey, wallet, connection, txSignature, connected]);
 
   const handleStoreReport = async () => {
     if (!publicKey || !connected) {
