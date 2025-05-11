@@ -253,6 +253,7 @@ function generateBuildSpec(config: RepositoryConfig): string {
           'echo "NGROK_PUBLIC_URL=${NGROK_URL}"',
           'if [ -z "${NGROK_URL}" ]; then echo "Failed to get ngrok URL" && cat ngrok.log && exit 1; else echo "Verifying ngrok tunnel..." && curl -v "${NGROK_URL}" && echo "Ngrok tunnel verified and accessible" || (echo "Ngrok tunnel not accessible" && cat ngrok.log && exit 1); fi',
           'mkdir -p security-reports',
+          'sleep 300'
         ]
       }
     },
