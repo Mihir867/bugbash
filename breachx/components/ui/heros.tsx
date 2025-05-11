@@ -16,18 +16,17 @@ export default function Heros() {
         <div className="relative z-10 flex flex-col items-center justify-center px-4 py-24 text-center md:py-32 lg:py-40">
           {/* Beta badge */}
           <div className="mb-8 inline-flex items-center rounded-full border border-purple-400/30 bg-purple-900/40 px-4 py-1.5 text-sm backdrop-blur-sm">
-            API Studio is now in beta <ArrowRight className="ml-1 h-3.5 w-3.5" />
+            BreachX is now in beta <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </div>
 
           {/* Heading */}
-          <h1 className="mb-6 max-w-4xl text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl">
-            The API Security Framework
+          <h1 className="mb-6 max-w-4xl text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-6xl">
+          Zero-Day Vulnerability Detection Powered by Solana
           </h1>
 
           {/* Subtext */}
           <p className="mb-10 max-w-2xl text-base text-purple-100/90 sm:text-lg md:text-xl">
-            Our landing page template works on all devices, so you only have to set it up once, and get beautiful
-            results forever.
+            Connect your GitHub account to scan repositories for vulnerabilities and store reports securely on the Solana blockchain. Earn recognition with our Verified Secure Contributor badge.
           </p>
 
           {/* Buttons */}
@@ -39,15 +38,11 @@ export default function Heros() {
               variant="outline"
               className="border-purple-400/30 bg-transparent backdrop-blur-sm hover:bg-purple-900/40"
             >
-              <BookOpen className="mr-2 h-4 w-4" /> Read the docs
+              <BookOpen className="mr-2 h-4 w-4" /> Dashboard
             </Button>
           </div>
         </div>
-
-       
       </section>
-
-      {/* Logos Section */}
       
     </main>
   )
