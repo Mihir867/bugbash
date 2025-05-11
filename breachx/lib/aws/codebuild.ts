@@ -234,33 +234,36 @@ function generateBuildSpec(config: RepositoryConfig): string {
       },
       post_build: {
         commands: [
-          'echo "Build completed at $(date)"',
-          'echo "Setting up ngrok tunnel..."',
-          'npm install -g ngrok',
+          'npm install -g ngrok wait-port',
+          'echo "Starting Next.js application"',
+          'npm start > app.log 2>&1 &',
+          'echo $! > app.pid',
+          'wait-port -t 60000 localhost:3000',
+          'curl -v http://localhost:3000/',
+          
           'ngrok config add-authtoken $NGROK_AUTH_TOKEN',
-          'nohup ngrok http 3000 > ngrok.log &',
-          'sleep 10',
-          'echo "Fetching tunnel information..."',
-          'curl -s http://127.0.0.1:4040/api/tunnels > tunnels.json || true',
-          'NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r \'.tunnels[0].public_url\' 2>/dev/null || echo "Not found")',
+          'echo "Starting ngrok..."',
+          'nohup ngrok http 3000 --log=stdout --log-level=debug > ngrok.log 2>&1 &',
+          
+          'echo "Waiting for ngrok tunnel..."',
+          'sleep 5', // Give ngrok time to initialize
+          'for i in $(seq 1 15); do curl -s http://127.0.0.1:4040/api/tunnels > tunnels.json; NGROK_URL=$(jq -r \'.tunnels[].public_url\' tunnels.json | grep -E \'^https://\' | head -1); if [ ! -z "$NGROK_URL" ]; then echo "Ngrok URL found: $NGROK_URL"; break; fi; echo "Waiting for ngrok tunnel to be ready..."; sleep 2; done',
+          
+          'NGROK_URL=$(jq -r \'.tunnels[].public_url\' tunnels.json | grep -E \'^https://\' | head -1 || echo "")',
           'echo "NGROK_PUBLIC_URL=${NGROK_URL}"',
-          'echo "Tunnel information:"',
-          'cat tunnels.json 2>/dev/null || echo "No tunnels.json file found"',
-          'echo "Trying alternative methods to get ngrok URL..."',
-          'ps aux | grep ngrok',
-          'echo "Getting URL from ngrok API..."',
-          'curl -s http://localhost:4040/api/tunnels | jq .',
-          'pgrep -l ngrok || echo "ngrok process not found"',
-          'export NGROK_PUBLIC_URL=$NGROK_URL',
-          'echo "Final NGROK_URL: $NGROK_URL"',
-          'echo "Starting application..."',
-          'npm start &',
-          'sleep 5',
-          'echo "Deployment completed. App available at: ${NGROK_URL}"',
-          'sleep 5'
-        ],
-      },
+          'if [ -z "${NGROK_URL}" ]; then echo "Failed to get ngrok URL" && cat ngrok.log && exit 1; else echo "Verifying ngrok tunnel..." && curl -v "${NGROK_URL}" && echo "Ngrok tunnel verified and accessible" || (echo "Ngrok tunnel not accessible" && cat ngrok.log && exit 1); fi',
+          'mkdir -p security-reports',
+        ]
+      }
     },
+    artifacts: {
+      'base-directory': '.',
+      files: [
+        'security-reports/**/*',
+        'app.log',
+        'ngrok.log'
+      ]
+    }
   };
 
   return yaml.dump(buildSpec, { lineWidth: -1 });
@@ -436,7 +439,7 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
                     
                     // Update repository with success status
                     await updateRepositoryConfig(
-                      parseInt(repositoryId),
+                      repositoryId,
                       'DEPLOYED',
                       ngrokUrl || 'URL not available',
                       // Set TTL for the ngrok URL (20+ minutes)
@@ -456,7 +459,7 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
                 } else {
                   // We already have the ngrok URL, so update the repository config
                   await updateRepositoryConfig(
-                    parseInt(repositoryId),
+                    repositoryId,
                     'DEPLOYED',
                     ngrokUrl || 'URL not available',
                     // Set TTL for the ngrok URL (15 minutes)
@@ -483,7 +486,7 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
               // Update repository with failure status
               try {
                 await updateRepositoryConfig(
-                  parseInt(repositoryId),
+                  repositoryId,
                   'FAILED',
                   undefined,
                   undefined,
@@ -535,7 +538,7 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
 
 // Helper function to update repository config
 async function updateRepositoryConfig(
-  repositoryId: number, 
+  repositoryId: string, 
   buildStatus: string, 
   publicUrl?: string, 
   urlExpiryTime?: Date,
@@ -555,7 +558,30 @@ async function updateRepositoryConfig(
       include: { config: true }
     });
     
-    if (!repository || !repository.config) {
+    let finalRepository = repository;
+    
+    if (!repository) {
+      try {
+        const result = await prisma.$queryRaw`
+          SELECT r.*, rc.id as "configId"
+          FROM "Repository" r
+          LEFT JOIN "RepositoryConfig" rc ON rc."repositoryId" = r.id
+          WHERE r."repoId" = ${repositoryId}
+          LIMIT 1;
+        `;
+        
+        if (Array.isArray(result) && result.length > 0) {
+          finalRepository = result[0];
+          
+          // Get the config separately since the raw query only gives us the configId
+          
+        }
+      } catch (sqlError) {
+        console.error('Raw SQL repository lookup by repoId also failed:', sqlError);
+      }
+    }
+    
+    if (!finalRepository || !finalRepository.config) {
       throw new Error(`Repository ${repositoryId} or its config not found`);
     }
     
@@ -576,7 +602,7 @@ async function updateRepositoryConfig(
     
     // Use the repository's config ID for the update
     await prisma.repositoryConfig.update({
-      where: { id: repository.config.id },
+      where: { id: finalRepository.config.id },
       data: updateData
     });
     
@@ -680,6 +706,16 @@ const startBuildParams: StartBuildCommandInput = {
     {
       name: 'BUILD_TIMESTAMP',
       value: new Date().toISOString(),
+      type: 'PLAINTEXT'
+    },
+    {
+      name: 'SECURITY_REPORTS_BUCKET',
+      value: process.env.SECURITY_REPORTS_BUCKET || 'your-security-reports-bucket',
+      type: 'PLAINTEXT'
+    },
+    {
+      name: 'REPOSITORY_ID',
+      value: repository.id,
       type: 'PLAINTEXT'
     }
   ]

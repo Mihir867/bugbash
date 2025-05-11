@@ -74,6 +74,13 @@ model RepositoryConfig {
   lastBuildStartTime   DateTime?
   deploymentUrl        String?   // ngrok URL for the deployed application
   
+  // Security scanning fields
+  securityReportUrl    String?   // URL to the latest security report
+  lastScanTime         DateTime? // When the last security scan was performed
+  criticalVulns        Int?      // Number of critical vulnerabilities found
+  highVulns            Int?      // Number of high vulnerabilities found
+  securityStatus       String?   // 'PASSED', 'FAILED', 'PENDING'
+  
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   
