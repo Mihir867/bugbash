@@ -14,6 +14,10 @@ import {
   DescribeLogStreamsCommand,
   GetLogEventsCommand
 } from "@aws-sdk/client-cloudwatch-logs";
+import {
+  LambdaClient,
+  InvokeCommand
+} from "@aws-sdk/client-lambda";
 import AWS from 'aws-sdk';
 import { WebSocket } from 'ws';
 import { PrismaClient, Repository, RepositoryConfig } from '@prisma/client';
@@ -52,6 +56,14 @@ const codeBuildClient = new CodeBuildClient({
 });
 
 const cloudWatchLogsClient = new CloudWatchLogsClient({
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+  }
+});
+
+const lambdaClient = new LambdaClient({
   region: process.env.AWS_REGION || 'us-east-1',
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
@@ -217,15 +229,98 @@ function getDirectNgrokCheck() {
   `;
 }
 
+export async function updateRepositoryDeploymentUrl(
+  repoId: string, 
+  ngrokUrl: string, 
+  buildStatus: 'DEPLOYED' | 'FAILED' = 'DEPLOYED'
+) {
+  logger.info(`[DEBUG] Attempting to update repository deployment URL for repo ${repoId}`, { 
+    ngrokUrl, 
+    buildStatus 
+  });
+
+  try {
+    // First, try the preferred method with fetch to the API route
+    const apiUrl = `${process.env.APP_URL || 'http://localhost:3000'}/api/update/${repoId}`;
+    
+    logger.debug(`[DEBUG] Attempting API update with URL: ${apiUrl}`);
+    
+    const response = await fetch(apiUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        deploymentUrl: ngrokUrl,
+        buildStatus 
+      })
+    });
+
+    logger.debug(`[DEBUG] API response status: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`[DEBUG] API update failed with status ${response.status}`, { errorText });
+      throw new Error(`API update failed with status ${response.status}: ${errorText}`);
+    }
+
+    const result = await response.json();
+    logger.info(`[DEBUG] Successfully updated repository via API`, result);
+    return result;
+
+  } catch (apiError) {
+    logger.error(`[DEBUG] API update failed, falling back to direct database update`, apiError);
+
+    // Fallback to direct Prisma update
+    try {
+      logger.debug(`[DEBUG] Attempting to find repository with ID: ${repoId}`);
+      const repository = await prisma.repository.findUnique({
+        where: { id: repoId },
+        include: { config: true }
+      });
+
+      if (!repository || !repository.config) {
+        throw new Error(`Repository ${repoId} not found`);
+      }
+
+      logger.debug(`[DEBUG] Updating repository config directly`, { 
+        repoId, 
+        configId: repository.config.id,
+        ngrokUrl 
+      });
+
+      const updatedConfig = await prisma.repositoryConfig.update({
+        where: { id: repository.config.id },
+        data: {
+          deploymentUrl: ngrokUrl,
+          buildStatus,
+          updatedAt: new Date()
+        }
+      });
+
+      logger.info(`[DEBUG] Successfully updated repository config directly`, { 
+        repoId, 
+        deploymentUrl: updatedConfig.deploymentUrl,
+        buildStatus: updatedConfig.buildStatus
+      });
+
+      return updatedConfig;
+
+    } catch (dbError) {
+      logger.error(`[DEBUG] Failed to update repository deployment URL`, dbError);
+      throw dbError;
+    }
+  }
+}
+
 function generateBuildSpec(config: RepositoryConfig): string {
   const buildSpec = {
     version: '0.2',
     phases: {
       install: {
         'runtime-versions': { nodejs: '20' },
-        commands: config.installCommand?.trim() 
-          ? [config.installCommand.trim()] 
-          : ['npm install'],
+        commands: [
+          'npm install aws-sdk',
+          ...(config.installCommand?.trim() ? [config.installCommand.trim()] : ['npm install'])
+        ]
       },
       build: {
         commands: config.buildCommand?.trim() 
@@ -240,19 +335,21 @@ function generateBuildSpec(config: RepositoryConfig): string {
           'echo $! > app.pid',
           'wait-port -t 60000 localhost:3000',
           'curl -v http://localhost:3000/',
-          
           'ngrok config add-authtoken $NGROK_AUTH_TOKEN',
           'echo "Starting ngrok..."',
           'nohup ngrok http 3000 --log=stdout --log-level=debug > ngrok.log 2>&1 &',
-          
           'echo "Waiting for ngrok tunnel..."',
-          'sleep 5', // Give ngrok time to initialize
+          'sleep 5',
           'for i in $(seq 1 15); do curl -s http://127.0.0.1:4040/api/tunnels > tunnels.json; NGROK_URL=$(jq -r \'.tunnels[].public_url\' tunnels.json | grep -E \'^https://\' | head -1); if [ ! -z "$NGROK_URL" ]; then echo "Ngrok URL found: $NGROK_URL"; break; fi; echo "Waiting for ngrok tunnel to be ready..."; sleep 2; done',
-          
           'NGROK_URL=$(jq -r \'.tunnels[].public_url\' tunnels.json | grep -E \'^https://\' | head -1 || echo "")',
           'echo "NGROK_PUBLIC_URL=${NGROK_URL}"',
-          'if [ -z "${NGROK_URL}" ]; then echo "Failed to get ngrok URL" && cat ngrok.log && exit 1; else echo "Verifying ngrok tunnel..." && curl -v "${NGROK_URL}" && echo "Ngrok tunnel verified and accessible" || (echo "Ngrok tunnel not accessible" && cat ngrok.log && exit 1); fi',
+          'echo "Verifying ngrok tunnel..."',
+          'curl -v "${NGROK_URL}" && echo "Ngrok tunnel verified and accessible" || (echo "Ngrok tunnel not accessible" && cat ngrok.log && exit 1)',
           'mkdir -p security-reports',
+          'echo "Updating repository deployment URL..."',
+          // Create a temporary Node.js script to handle the Lambda invocation
+          'echo "const AWS = require(\'aws-sdk\'); AWS.config.update({region: \'eu-north-1\'}); const lambda = new AWS.Lambda(); console.log(\'Invoking Lambda function:\', process.env.UPDATE_LAMBDA_NAME); lambda.invoke({ FunctionName: process.env.UPDATE_LAMBDA_NAME, Payload: JSON.stringify({ repositoryId: process.env.REPOSITORY_ID, deploymentUrl: process.env.NGROK_URL, buildStatus: \'DEPLOYED\' }) }).promise().then(data => { console.log(\'Lambda response:\', data); }).catch(err => { console.error(\'Lambda error:\', err); process.exit(1); });" > update-url.js',
+          'node update-url.js',
           'sleep 300'
         ]
       }
@@ -262,7 +359,8 @@ function generateBuildSpec(config: RepositoryConfig): string {
       files: [
         'security-reports/**/*',
         'app.log',
-        'ngrok.log'
+        'ngrok.log',
+        'update-url.js'
       ]
     }
   };
@@ -359,6 +457,18 @@ export const streamBuildLogs = async (buildId: string, ws: WebSocket) => {
                     ngrokUrl = tunnelData.tunnels[0].public_url;
                     ngrokUrlCaptured = true;
                     logger.info(`Extracted ngrok URL from logs: ${ngrokUrl}`);
+                    
+                    // Call updateRepositoryDeploymentUrl with the captured ngrokUrl
+                    if (repositoryId && ngrokUrl) {
+                      (async () => {
+                        try {
+                          await updateRepositoryDeploymentUrl(repositoryId, ngrokUrl!, 'DEPLOYED');
+                          logger.info(`Successfully updated repository deployment URL to ${ngrokUrl}`);
+                        } catch (updateErr) {
+                          logger.error(`Failed to update repository deployment URL`, updateErr);
+                        }
+                      })();
+                    }
                     
                     ws.send(JSON.stringify({
                       type: 'info',
@@ -718,6 +828,11 @@ const startBuildParams: StartBuildCommandInput = {
       name: 'REPOSITORY_ID',
       value: repository.id,
       type: 'PLAINTEXT'
+    },
+    {
+      name: 'UPDATE_LAMBDA_NAME',
+      value: `arn:aws:lambda:eu-north-1:273354655539:function:update-deployment-url`,
+      type: 'PLAINTEXT'
     }
   ]
 };
@@ -789,6 +904,28 @@ const startBuildParams: StartBuildCommandInput = {
       logger.error('Error updating database with build failure', dbError);
     }
     
+    throw error;
+  }
+}
+
+// Add a function to invoke Lambda directly from Node.js
+export async function invokeUpdateUrlLambda(repositoryId: string, deploymentUrl: string, buildStatus: string = 'DEPLOYED') {
+  try {
+    const command = new InvokeCommand({
+      FunctionName: process.env.UPDATE_LAMBDA_NAME || 'update-deployment-url',
+      Payload: Buffer.from(JSON.stringify({
+        repositoryId,
+        deploymentUrl,
+        buildStatus
+      }))
+    });
+
+    const response = await lambdaClient.send(command);
+    const responsePayload = new TextDecoder().decode(response.Payload);
+    logger.info('Lambda response:', responsePayload);
+    return JSON.parse(responsePayload);
+  } catch (error) {
+    logger.error('Error invoking Lambda:', error);
     throw error;
   }
 }
