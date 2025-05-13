@@ -79,7 +79,7 @@ export default function RepositoryDetail() {
   const { repoId } = useParams()
   const { data: session, status } = useSession()
   const router = useRouter()
- 
+
   const [repository, setRepository] = useState<null | Repository>(null)
   const [repoConfig, setRepoConfig] = useState<null | RepositoryConfig>(null)
   const [loading, setLoading] = useState(true)
@@ -91,6 +91,7 @@ export default function RepositoryDetail() {
   const [lastBuildInfo, setLastBuildInfo] = useState<LastBuildInfo | null>(null)
   const [currentBuildId, setCurrentBuildId] = useState<string | null>(null)
 
+  console.log(repository, "lol")
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/sign-in")

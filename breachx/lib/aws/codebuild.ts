@@ -341,14 +341,12 @@ function generateBuildSpec(config: RepositoryConfig): string {
           'echo "Waiting for ngrok tunnel..."',
           'sleep 5',
           'for i in $(seq 1 15); do curl -s http://127.0.0.1:4040/api/tunnels > tunnels.json; NGROK_URL=$(jq -r \'.tunnels[].public_url\' tunnels.json | grep -E \'^https://\' | head -1); if [ ! -z "$NGROK_URL" ]; then echo "Ngrok URL found: $NGROK_URL"; break; fi; echo "Waiting for ngrok tunnel to be ready..."; sleep 2; done',
-          'NGROK_URL=$(jq -r \'.tunnels[].public_url\' tunnels.json | grep -E \'^https://\' | head -1 || echo "")',
-          'echo "NGROK_PUBLIC_URL=${NGROK_URL}"',
-          'echo "Verifying ngrok tunnel..."',
-          'curl -v "${NGROK_URL}" && echo "Ngrok tunnel verified and accessible" || (echo "Ngrok tunnel not accessible" && cat ngrok.log && exit 1)',
+          "export NGROK_URL=$(grep -o 'https://[^\"]*' tunnels.json | head -1 || echo '')",
+          'echo "NGROK_PUBLIC_URL=$NGROK_URL"',
+          'curl -v "$NGROK_URL" && echo "Ngrok tunnel verified and accessible" || (echo "Ngrok tunnel not accessible" && cat ngrok.log && exit 1)',
           'mkdir -p security-reports',
           'echo "Updating repository deployment URL..."',
-          // Create a temporary Node.js script to handle the Lambda invocation
-          'echo "const AWS = require(\'aws-sdk\'); AWS.config.update({region: \'eu-north-1\'}); const lambda = new AWS.Lambda(); console.log(\'Invoking Lambda function:\', process.env.UPDATE_LAMBDA_NAME); lambda.invoke({ FunctionName: process.env.UPDATE_LAMBDA_NAME, Payload: JSON.stringify({ repositoryId: process.env.REPOSITORY_ID, deploymentUrl: process.env.NGROK_URL, buildStatus: \'DEPLOYED\' }) }).promise().then(data => { console.log(\'Lambda response:\', data); }).catch(err => { console.error(\'Lambda error:\', err); process.exit(1); });" > update-url.js',
+          `echo "const AWS = require('aws-sdk'); AWS.config.update({region: 'eu-north-1'}); const lambda = new AWS.Lambda(); const deploymentUrl = process.env.NGROK_URL; const repositoryId = '${config.repositoryId}'; const params = { FunctionName: process.env.UPDATE_LAMBDA_NAME, Payload: JSON.stringify({ repositoryId, deploymentUrl, buildStatus: 'DEPLOYED' }) }; lambda.invoke(params).promise().then(data => { console.log('Lambda response:', data); }).catch(err => { console.error('Lambda error:', err); process.exit(1); });" > update-url.js`,
           'node update-url.js',
           'sleep 300'
         ]
