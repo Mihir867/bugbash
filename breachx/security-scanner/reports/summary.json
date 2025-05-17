@@ -1,0 +1,13 @@
+{
+  "target_url": "https://sickfreak.club/",
+  "scan_date": "2025-05-13T11:41:35Z",
+  "reports": {
+    "sqlmap": "/reports/sqlmap",
+    "testssl": "/reports/testssl/testssl_report.json",
+    "ssrfmap": "/reports/ssrfmap/ssrfmap_report.txt",
+    "nikto": "/reports/nikto/nikto_report.json",
+    "jwt": "/reports/jwt/jwt_report.txt",
+    "trivy": "/reports/trivy/trivy_report.json",
+    "nmap": "/reports/nmap_report.txt"
+  }
+}
