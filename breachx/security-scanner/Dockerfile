@@ -59,7 +59,7 @@ RUN git clone --depth 1 https://github.com/s0md3v/XSStrike /tools/xsstrike && \
 COPY <<-"EOF" /scan.sh
 #!/bin/bash
 
-set -e
+set +e
 
 mkdir -p /reports/sqlmap /reports/testssl /reports/ssrfmap /reports/nikto /reports/jwt /reports/trivy /reports/nmap /reports/xss
 

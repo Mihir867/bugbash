@@ -1,0 +1,11 @@
+# Core dependencies
+fpdf2==2.7.4
+pillow==10.0.1
+boto3==1.33.13
+
+# AI/ML dependencies
+langchain-google-genai==0.0.9
+google-generativeai==0.3.2
+langgraph==0.0.19
+
+# We don't need to specify grpcio installation flags in container approach
