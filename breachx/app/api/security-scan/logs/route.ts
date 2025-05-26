@@ -26,11 +26,6 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const scanId = searchParams.get('scanId');
 
-  // Debug logging
-  console.log('Logs request - Scan ID:', scanId);
-  console.log('Total sessions available:', scanSessions.size);
-  console.log('Available scan sessions:', Array.from(scanSessions.keys()));
-
   if (!scanId) {
     return new Response(
       `data: ${JSON.stringify({ error: 'Scan ID is required' })}\n\n`,
@@ -49,7 +44,6 @@ export async function GET(request: NextRequest) {
 
   const scanSession = scanSessions.get(scanId);
   if (!scanSession) {
-    console.log('Scan session not found for ID:', scanId);
     return new Response(
       `data: ${JSON.stringify({ 
         error: 'Scan session not found',
@@ -69,38 +63,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  console.log('Found scan session:', scanSession);
-
   // Create a readable stream for SSE
   const stream = new ReadableStream({
     start(controller) {
-      let nextToken: string | undefined = undefined;
-      let logStreamName: string | undefined = undefined;
-      let logStreamExists: boolean = false;
-      let taskStatus: string = 'PENDING';
       let streamingActive = true;
+      let allLogsSent = false;
+      let lastForwardToken: string | undefined = undefined;
 
       // Function to extract log stream name from task ARN
       const getLogStreamName = (taskArn: string): string => {
         const taskId = taskArn.split('/').pop();
         return `security-scanner/security-scanner/${taskId}`;
-      };
-
-      // Function to check if log stream exists
-      const checkLogStreamExists = async (): Promise<boolean> => {
-        try {
-          const params = {
-            logGroupName: '/ecs/security-scanner',
-            logStreamNamePrefix: logStreamName,
-          };
-          
-          const command = new DescribeLogStreamsCommand(params);
-          const response = await logsClient.send(command);
-          
-          return response.logStreams !== undefined && response.logStreams.length > 0;
-        } catch (error) {
-          return false;
-        }
       };
 
       // Function to get task status
@@ -124,96 +97,134 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      const streamLogs = async (isFinalAttempt: boolean = false): Promise<void> => {
-        if (!streamingActive) return;
-
+      // Function to get ALL logs from CloudWatch (complete history)
+      const getAllLogs = async (): Promise<void> => {
         try {
-          // Get current task status
-          taskStatus = await getTaskStatus();
+          const logStreamName = getLogStreamName(scanSession.taskArn);
           
-          // Send status update
-          const statusMessage = `data: ${JSON.stringify({ 
-            message: `Task status: ${taskStatus}`, 
-            level: 'info',
-            timestamp: Date.now()
-          })}\n\n`;
-          controller.enqueue(new TextEncoder().encode(statusMessage));
+          console.log('Getting ALL logs for stream:', logStreamName);
 
-          if (!logStreamName) {
-            logStreamName = getLogStreamName(scanSession.taskArn);
-          }
+          // Get all logs from the beginning
+          const params = {
+            logGroupName: '/ecs/security-scanner',
+            logStreamName: logStreamName,
+            startFromHead: true, // This ensures we get ALL logs from the beginning
+            // Don't use nextToken on the first call to get everything
+          };
 
-          // Check if log stream exists
-          if (!logStreamExists) {
-            logStreamExists = await checkLogStreamExists();
-            
-            if (!logStreamExists) {
-              // If task is still starting up, wait and retry
-              if (['PENDING', 'PROVISIONING', 'ACTIVATING'].includes(taskStatus)) {
-                const waitMessage = `data: ${JSON.stringify({ 
-                  message: 'Waiting for container to start...', 
-                  level: 'info',
-                  timestamp: Date.now()
-                })}\n\n`;
-                controller.enqueue(new TextEncoder().encode(waitMessage));
-                setTimeout(() => streamLogs(), 3000);
-                return;
-              } else if (taskStatus === 'RUNNING') {
-                const runningMessage = `data: ${JSON.stringify({ 
-                  message: 'Container is running, waiting for logs...', 
-                  level: 'info',
-                  timestamp: Date.now()
-                })}\n\n`;
-                controller.enqueue(new TextEncoder().encode(runningMessage));
-                setTimeout(() => streamLogs(), 2000);
-                return;
-              } else if (['STOPPED', 'STOPPING'].includes(taskStatus)) {
-                const stoppedMessage = `data: ${JSON.stringify({ 
-                  message: `Task ${taskStatus.toLowerCase()}, checking for final logs...`, 
-                  level: 'warning',
-                  timestamp: Date.now()
-                })}\n\n`;
-                controller.enqueue(new TextEncoder().encode(stoppedMessage));
-                setTimeout(() => streamLogs(true), 1000);
-                return;
+          console.log('Fetching ALL logs with params:', params);
+
+          const command = new GetLogEventsCommand(params);
+          const response = await logsClient.send(command);
+
+          console.log(`Found ${response.events?.length || 0} total log events`);
+
+          // Send all log events immediately
+          if (response.events && response.events.length > 0) {
+            for (const event of response.events) {
+              if (event.message && event.message.trim()) {
+                const logData = {
+                  message: event.message,
+                  timestamp: event.timestamp || Date.now(),
+                  level: detectLogLevel(event.message),
+                  type: 'log'
+                };
+
+                const logMessage = `data: ${JSON.stringify(logData)}\n\n`;
+                controller.enqueue(new TextEncoder().encode(logMessage));
               }
             }
+            
+            // Store the forward token for future polling
+            lastForwardToken = response.nextForwardToken;
+            allLogsSent = true;
           }
 
-          // Try to fetch logs if stream exists
-          if (logStreamExists && logStreamName) {
+        } catch (error: any) {
+          console.error('Error getting all logs:', error);
+          
+          const errorMessage = `data: ${JSON.stringify({ 
+            message: `Error fetching logs: ${error.message}`,
+            level: 'error',
+            timestamp: Date.now(),
+            type: 'error'
+          })}\n\n`;
+          controller.enqueue(new TextEncoder().encode(errorMessage));
+        }
+      };
+
+      // Function to poll for new logs
+      const pollForNewLogs = async (): Promise<void> => {
+        if (!streamingActive || !allLogsSent) return;
+
+        try {
+          const logStreamName = getLogStreamName(scanSession.taskArn);
+          const taskStatus = await getTaskStatus();
+
+          // Only poll for new logs if we have a forward token
+          if (lastForwardToken) {
             const params = {
               logGroupName: '/ecs/security-scanner',
               logStreamName: logStreamName,
-              startFromHead: false,
-              ...(nextToken && { nextToken })
+              nextToken: lastForwardToken,
+              startFromHead: false, // We're polling for new logs only
             };
 
             const command = new GetLogEventsCommand(params);
             const response = await logsClient.send(command);
 
-            // Send each log event
-            for (const event of response.events || []) {
-              const logData = {
-                message: event.message,
-                timestamp: event.timestamp,
-                level: detectLogLevel(event.message)
-              };
+            // Send any new log events
+            if (response.events && response.events.length > 0) {
+              console.log(`Found ${response.events.length} new log events`);
+              
+              for (const event of response.events) {
+                if (event.message && event.message.trim()) {
+                  const logData = {
+                    message: event.message,
+                    timestamp: event.timestamp || Date.now(),
+                    level: detectLogLevel(event.message),
+                    type: 'log'
+                  };
 
-              const logMessage = `data: ${JSON.stringify(logData)}\n\n`;
-              controller.enqueue(new TextEncoder().encode(logMessage));
+                  const logMessage = `data: ${JSON.stringify(logData)}\n\n`;
+                  controller.enqueue(new TextEncoder().encode(logMessage));
+                }
+              }
+              
+              // Update the forward token
+              if (response.nextForwardToken && response.nextForwardToken !== lastForwardToken) {
+                lastForwardToken = response.nextForwardToken;
+              }
             }
-
-            nextToken = response.nextForwardToken;
           }
 
-          // Continue streaming based on task status
-          if (['PENDING', 'PROVISIONING', 'ACTIVATING', 'RUNNING'].includes(taskStatus)) {
-            setTimeout(() => streamLogs(), 2000);
+          // Continue polling based on task status
+          if (taskStatus === 'RUNNING') {
+            setTimeout(() => pollForNewLogs(), 2000);
+          } else if (taskStatus === 'STOPPING') {
+            setTimeout(() => pollForNewLogs(), 1000);
+          } else if (taskStatus === 'STOPPED') {
+            // Do one final poll and then close
+            setTimeout(() => {
+              pollForNewLogs().then(() => {
+                const completeMessage = `event: complete\ndata: ${JSON.stringify({ 
+                  message: `Scan completed with status: ${taskStatus}`,
+                  summary: `Security scan completed`,
+                  timestamp: Date.now(),
+                  type: 'complete'
+                })}\n\n`;
+                controller.enqueue(new TextEncoder().encode(completeMessage));
+                controller.close();
+                streamingActive = false;
+              });
+            }, 1000);
           } else {
-            // Task has stopped, send completion event
+            // Task ended - close stream
             const completeMessage = `event: complete\ndata: ${JSON.stringify({ 
-              summary: `Scan completed with status: ${taskStatus}` 
+              message: `Task ended with status: ${taskStatus}`,
+              summary: `Task ended with status: ${taskStatus}`,
+              timestamp: Date.now(),
+              type: 'complete'
             })}\n\n`;
             controller.enqueue(new TextEncoder().encode(completeMessage));
             controller.close();
@@ -221,22 +232,17 @@ export async function GET(request: NextRequest) {
           }
 
         } catch (error: any) {
-          console.error('Error streaming logs:', error);
+          console.error('Error polling for new logs:', error);
           
-          // If it's a ResourceNotFoundException and task is still starting, retry
-          if (error.name === 'ResourceNotFoundException' && 
-              ['PENDING', 'PROVISIONING', 'ACTIVATING', 'RUNNING'].includes(taskStatus)) {
-            const retryMessage = `data: ${JSON.stringify({ 
-              message: 'Log stream not ready yet, retrying...', 
-              level: 'info',
-              timestamp: Date.now()
-            })}\n\n`;
-            controller.enqueue(new TextEncoder().encode(retryMessage));
-            setTimeout(() => streamLogs(), 3000);
+          if (error.name === 'ResourceNotFoundException') {
+            // Log stream might not exist yet, retry
+            setTimeout(() => pollForNewLogs(), 3000);
           } else {
             const errorMessage = `data: ${JSON.stringify({ 
-              error: `Failed to fetch logs: ${error.message}`,
-              timestamp: Date.now()
+              message: `Error polling logs: ${error.message}`,
+              level: 'error',
+              timestamp: Date.now(),
+              type: 'error'
             })}\n\n`;
             controller.enqueue(new TextEncoder().encode(errorMessage));
             controller.close();
@@ -245,15 +251,56 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      // Start streaming logs with initial delay
-      const startMessage = `data: ${JSON.stringify({ 
-        message: 'Starting security scan...', 
-        level: 'info',
-        timestamp: Date.now()
-      })}\n\n`;
-      controller.enqueue(new TextEncoder().encode(startMessage));
-      
-      setTimeout(() => streamLogs(), 2000);
+      // Start the process
+      const startStreaming = async () => {
+        // Send initial message
+        const startMessage = `data: ${JSON.stringify({ 
+          message: 'Fetching scan logs...', 
+          level: 'info',
+          timestamp: Date.now(),
+          type: 'status'
+        })}\n\n`;
+        controller.enqueue(new TextEncoder().encode(startMessage));
+
+        // Wait a bit for the container to start
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Try to get all existing logs
+        let retries = 0;
+        const maxRetries = 10;
+        
+        while (!allLogsSent && retries < maxRetries && streamingActive) {
+          try {
+            await getAllLogs();
+            if (allLogsSent) {
+              break;
+            }
+          } catch (error) {
+            console.log(`Retry ${retries + 1} to get logs...`);
+          }
+          
+          retries++;
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+
+        if (!allLogsSent) {
+          const errorMessage = `data: ${JSON.stringify({ 
+            message: 'Could not fetch initial logs, will continue polling for new logs',
+            level: 'warning',
+            timestamp: Date.now(),
+            type: 'warning'
+          })}\n\n`;
+          controller.enqueue(new TextEncoder().encode(errorMessage));
+          allLogsSent = true; // Continue with polling
+        }
+
+        // Start polling for new logs
+        if (streamingActive) {
+          pollForNewLogs();
+        }
+      };
+
+      startStreaming();
     },
     cancel() {
       console.log('Stream cancelled by client');
@@ -274,12 +321,28 @@ export async function GET(request: NextRequest) {
 // Helper function to detect log level
 function detectLogLevel(message: string | undefined = ''): string {
   const lowerMessage = message.toLowerCase();
-  if (lowerMessage.includes('error') || lowerMessage.includes('failed')) {
+  
+  if (lowerMessage.includes('error') || 
+      lowerMessage.includes('failed') || 
+      lowerMessage.includes('critical') ||
+      lowerMessage.includes('fatal') ||
+      message.includes('⚠️')) {
     return 'error';
-  } else if (lowerMessage.includes('warning') || lowerMessage.includes('warn')) {
+  } else if (lowerMessage.includes('warning') || 
+             lowerMessage.includes('warn') ||
+             message.includes('[WARNING]')) {
     return 'warning';
-  } else if (lowerMessage.includes('success') || lowerMessage.includes('completed')) {
+  } else if (lowerMessage.includes('success') || 
+             lowerMessage.includes('completed') || 
+             message.includes('✅')) {
     return 'success';
+  } else if (lowerMessage.includes('info') || 
+             lowerMessage.includes('starting') || 
+             message.includes('🚀') || 
+             message.includes('🔍') ||
+             message.includes('[INFO]')) {
+    return 'info';
   }
+  
   return 'info';
 }
