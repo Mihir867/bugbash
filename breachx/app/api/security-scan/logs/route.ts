@@ -1,25 +1,28 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 import { CloudWatchLogsClient, GetLogEventsCommand, DescribeLogStreamsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { NextRequest } from 'next/server';
 import { scanSessions } from '@/lib/scanSessions';
 
-const logsClient = new CloudWatchLogsClient({
-  region: 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  },
-});
-
 const ecsClient = new ECSClient({
   region: 'us-east-1',
   credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
   },
 });
 
-export async function GET(request) {
+const logsClient = new CloudWatchLogsClient({
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+  },
+});
+
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const scanId = searchParams.get('scanId');
 
@@ -27,7 +30,6 @@ export async function GET(request) {
   console.log('Logs request - Scan ID:', scanId);
   console.log('Total sessions available:', scanSessions.size);
   console.log('Available scan sessions:', Array.from(scanSessions.keys()));
-  console.log('Scan session exists:', scanSessions.has(scanId));
 
   if (!scanId) {
     return new Response(
@@ -72,20 +74,20 @@ export async function GET(request) {
   // Create a readable stream for SSE
   const stream = new ReadableStream({
     start(controller) {
-      let nextToken = null;
-      let logStreamName = null;
-      let logStreamExists = false;
-      let taskStatus = 'PENDING';
+      let nextToken: string | undefined = undefined;
+      let logStreamName: string | undefined = undefined;
+      let logStreamExists: boolean = false;
+      let taskStatus: string = 'PENDING';
       let streamingActive = true;
 
       // Function to extract log stream name from task ARN
-      const getLogStreamName = (taskArn) => {
+      const getLogStreamName = (taskArn: string): string => {
         const taskId = taskArn.split('/').pop();
         return `security-scanner/security-scanner/${taskId}`;
       };
 
       // Function to check if log stream exists
-      const checkLogStreamExists = async () => {
+      const checkLogStreamExists = async (): Promise<boolean> => {
         try {
           const params = {
             logGroupName: '/ecs/security-scanner',
@@ -95,14 +97,14 @@ export async function GET(request) {
           const command = new DescribeLogStreamsCommand(params);
           const response = await logsClient.send(command);
           
-          return response.logStreams && response.logStreams.length > 0;
+          return response.logStreams !== undefined && response.logStreams.length > 0;
         } catch (error) {
           return false;
         }
       };
 
       // Function to get task status
-      const getTaskStatus = async () => {
+      const getTaskStatus = async (): Promise<string> => {
         try {
           const params = {
             cluster: 'security-scanner-cluster',
@@ -113,7 +115,7 @@ export async function GET(request) {
           const response = await ecsClient.send(command);
           
           if (response.tasks && response.tasks.length > 0) {
-            return response.tasks[0].lastStatus;
+            return response.tasks[0].lastStatus || 'UNKNOWN';
           }
           return 'UNKNOWN';
         } catch (error) {
@@ -122,7 +124,7 @@ export async function GET(request) {
         }
       };
 
-      const streamLogs = async (isFinalAttempt = false) => {
+      const streamLogs = async (isFinalAttempt: boolean = false): Promise<void> => {
         if (!streamingActive) return;
 
         try {
@@ -179,7 +181,7 @@ export async function GET(request) {
           }
 
           // Try to fetch logs if stream exists
-          if (logStreamExists) {
+          if (logStreamExists && logStreamName) {
             const params = {
               logGroupName: '/ecs/security-scanner',
               logStreamName: logStreamName,
@@ -218,7 +220,7 @@ export async function GET(request) {
             streamingActive = false;
           }
 
-        } catch (error) {
+        } catch (error: any) {
           console.error('Error streaming logs:', error);
           
           // If it's a ResourceNotFoundException and task is still starting, retry
@@ -270,7 +272,7 @@ export async function GET(request) {
 }
 
 // Helper function to detect log level
-function detectLogLevel(message) {
+function detectLogLevel(message: string | undefined = ''): string {
   const lowerMessage = message.toLowerCase();
   if (lowerMessage.includes('error') || lowerMessage.includes('failed')) {
     return 'error';

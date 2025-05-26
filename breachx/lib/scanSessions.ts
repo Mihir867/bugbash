@@ -6,7 +6,7 @@ interface ScanSession {
   }
   
   declare global {
-    var scanSessions: Map<string, ScanSession> | undefined;
+    const scanSessions: Map<string, ScanSession> | undefined;
   }
   
   const globalForScanSessions = globalThis as unknown as {

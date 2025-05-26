@@ -1,15 +1,46 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, { useState, useEffect, useRef } from 'react';
 
-const SecurityLogStream = ({ deploymentUrl, maxHeight = "500px", autoScroll = true }:any) => {
-  const [logs, setLogs] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const logsEndRef = useRef(null);
-  const eventSourceRef = useRef(null);
+// Type definitions
+interface LogEntry {
+  id: number;
+  timestamp: string;
+  message: string;
+  level: 'error' | 'warning' | 'success' | 'info';
+}
 
-  const scrollToBottom = () => {
+interface SecurityLogStreamProps {
+  deploymentUrl?: string;
+  maxHeight?: string;
+  autoScroll?: boolean;
+}
+
+interface ScanResponse {
+  scanId: string;
+}
+
+interface LogData {
+  message: string;
+  level?: 'error' | 'warning' | 'success' | 'info';
+}
+
+interface CompleteEventData {
+  summary: string;
+}
+
+const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({ 
+  deploymentUrl, 
+  maxHeight = "500px", 
+  autoScroll = true 
+}) => {
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const scrollToBottom = (): void => {
     if (autoScroll && logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
@@ -17,9 +48,9 @@ const SecurityLogStream = ({ deploymentUrl, maxHeight = "500px", autoScroll = tr
 
   useEffect(() => {
     scrollToBottom();
-  }, [logs]);
+  }, [logs, autoScroll]);
 
-  const startScanning = async () => {
+  const startScanning = async (): Promise<void> => {
     if (!deploymentUrl) {
       setError('Deployment URL is required');
       return;
@@ -48,19 +79,19 @@ const SecurityLogStream = ({ deploymentUrl, maxHeight = "500px", autoScroll = tr
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const { scanId } = await response.json();
+      const { scanId }: ScanResponse = await response.json();
 
       // Connect to SSE endpoint for real-time logs
       const eventSource = new EventSource(`/api/security-scan/logs?scanId=${scanId}`);
       eventSourceRef.current = eventSource;
 
-      eventSource.onopen = () => {
+      eventSource.onopen = (): void => {
         setIsConnected(true);
         setIsLoading(false);
       };
 
-      eventSource.onmessage = (event) => {
-        const logData = JSON.parse(event.data);
+      eventSource.onmessage = (event: MessageEvent): void => {
+        const logData: LogData = JSON.parse(event.data);
         
         setLogs(prev => [...prev, {
           id: Date.now() + Math.random(),
@@ -70,7 +101,7 @@ const SecurityLogStream = ({ deploymentUrl, maxHeight = "500px", autoScroll = tr
         }]);
       };
 
-      eventSource.onerror = (error) => {
+      eventSource.onerror = (error: Event): void => {
         console.error('SSE error:', error);
         setError('Connection to log stream failed');
         setIsConnected(false);
@@ -78,8 +109,8 @@ const SecurityLogStream = ({ deploymentUrl, maxHeight = "500px", autoScroll = tr
         eventSource.close();
       };
 
-      eventSource.addEventListener('complete', (event) => {
-        const data = JSON.parse(event.data);
+      eventSource.addEventListener('complete', (event: MessageEvent): void => {
+        const data: CompleteEventData = JSON.parse(event.data);
         setLogs(prev => [...prev, {
           id: Date.now() + Math.random(),
           timestamp: new Date().toISOString(),
@@ -91,24 +122,25 @@ const SecurityLogStream = ({ deploymentUrl, maxHeight = "500px", autoScroll = tr
       });
 
     } catch (err) {
-      setError(err.message);
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+      setError(errorMessage);
       setIsLoading(false);
     }
   };
 
-  const stopScanning = () => {
+  const stopScanning = (): void => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       setIsConnected(false);
     }
   };
 
-  const clearLogs = () => {
+  const clearLogs = (): void => {
     setLogs([]);
     setError(null);
   };
 
-  const getLogLevelColor = (level) => {
+  const getLogLevelColor = (level: LogEntry['level']): string => {
     switch (level) {
       case 'error': return 'text-red-400';
       case 'warning': return 'text-yellow-400';
