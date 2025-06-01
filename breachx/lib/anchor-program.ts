@@ -6,24 +6,42 @@ import {
   PublicKey,
   Transaction,
   VersionedTransaction,
+  SystemProgram,
+  SYSVAR_RENT_PUBKEY,
 } from "@solana/web3.js";
+import {
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddress,
+} from "@solana/spl-token";
 import { Anchor } from "./contract/types/anchor";
 import idl from "./contract/idl/anchor.json";
 
 export const PROGRAM_ID = "CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw";
+export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+);
 
 export type VulnerabilityReport = {
   repositoryId: string;
   reportUrl: string;
   reporter: PublicKey;
   timestamp: anchor.BN;
+  nftMint: PublicKey;
 };
 
 export type ReportWithTransaction = {
   pda: PublicKey;
   report: VulnerabilityReport;
   transactionId?: string;
+  nftMint?: PublicKey;
 };
+
+export interface CompactNFTMetadata {
+  name: string;
+  symbol: string;
+  uri: string;
+}
 
 export function createAnchorWallet(
   wallet: WalletContextState
@@ -75,7 +93,87 @@ export async function getProgram(
   }
 }
 
-export async function storeVulnerabilityReport(
+export function generateCompactSecurityBadgeMetadata(
+  repositoryId: string,
+  reportUrl: string,
+  timestamp: number
+): CompactNFTMetadata {
+  const repoName = repositoryId.split("/").pop() || repositoryId;
+
+  return {
+    name: `Security Badge - ${repoName}`,
+    symbol: "BXSB",
+    uri: "", // Will be set after Pinata upload
+  };
+}
+
+// Upload full metadata to Pinata and return URI
+export async function uploadMetadataToIPFS(
+  repositoryId: string,
+  reportUrl: string,
+  timestamp: number
+): Promise<string> {
+  const repoName = repositoryId.split("/").pop() || repositoryId;
+
+  const fullMetadata = {
+    name: `BreachX Security Badge - ${repoName}`,
+    symbol: "BXSB",
+    description: `Security verification badge for ${repositoryId}. This NFT represents a verified security audit conducted on ${new Date(
+      timestamp * 1000
+    ).toLocaleDateString()}.`,
+    image: "http://localhost:3000/api/nft-image/security-badge.png",
+    attributes: [
+      {
+        trait_type: "Repository",
+        value: repositoryId,
+      },
+      {
+        trait_type: "Audit Date",
+        value: new Date(timestamp * 1000).toLocaleDateString(),
+      },
+      {
+        trait_type: "Badge Type",
+        value: "Security Verification",
+      },
+      {
+        trait_type: "Platform",
+        value: "BreachX",
+      },
+    ],
+    properties: {
+      files: [
+        {
+          uri: "http://localhost:3000/api/nft-image/security-badge.png",
+          type: "image/png",
+        },
+      ],
+      category: "image",
+    },
+  };
+
+  try {
+    const response = await fetch("/api/upload-metadata", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(fullMetadata),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to upload metadata");
+    }
+
+    const result = await response.json();
+    return result.uri;
+  } catch (error) {
+    console.error("Error uploading metadata:", error);
+    // Fallback to a base64 encoded URI for development
+    return `data:application/json;base64,${btoa(JSON.stringify(fullMetadata))}`;
+  }
+}
+
+export async function storeVulnerabilityReportAndMintNFT(
   program: anchor.Program<Anchor>,
   repositoryId: string,
   reportUrl: string
@@ -95,20 +193,86 @@ export async function storeVulnerabilityReport(
     program.programId
   );
 
+  const [mintPda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("mint"),
+      wallet.publicKey.toBuffer(),
+      Buffer.from(repositoryId),
+    ],
+    program.programId
+  );
+
+  const tokenAccount = await getAssociatedTokenAddress(
+    mintPda,
+    wallet.publicKey
+  );
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const metadataUri = await uploadMetadataToIPFS(
+    repositoryId,
+    reportUrl,
+    timestamp
+  );
+
+  const [metadataPda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("metadata"),
+      TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+      mintPda.toBuffer(),
+    ],
+    TOKEN_METADATA_PROGRAM_ID
+  );
+
+  const compactMetadata = generateCompactSecurityBadgeMetadata(
+    repositoryId,
+    reportUrl,
+    timestamp
+  );
+  compactMetadata.uri = metadataUri;
+
   try {
-    const tx = await program.methods
+    const tx1 = await program.methods
       .storeVulnerabilityReport(repositoryId, reportUrl)
       .accounts({
         // @ts-expect-error - Account property names from IDL
         vulnerabilityReport: vulnerabilityReportPda,
         reporter: wallet.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+        systemProgram: SystemProgram.programId,
       })
       .rpc();
 
-    return { tx, pda: vulnerabilityReportPda };
+    const tx2 = await program.methods
+      .mintSecurityBadgeNft(
+        repositoryId,
+        compactMetadata.name,
+        compactMetadata.symbol,
+        compactMetadata.uri
+      )
+      .accounts({
+        // @ts-expect-error - Account property names from IDL
+        vulnerabilityReport: vulnerabilityReportPda,
+        mint: mintPda,
+        tokenAccount: tokenAccount,
+        metadata: metadataPda,
+        reporter: wallet.publicKey,
+        rent: SYSVAR_RENT_PUBKEY,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+      })
+      .rpc();
+
+    return {
+      tx1,
+      tx2,
+      pda: vulnerabilityReportPda,
+      nftMint: mintPda,
+      tokenAccount,
+    };
   } catch (error) {
-    console.error("Error storing vulnerability report:", error);
+    console.error("Error storing vulnerability report and minting NFT:", error);
     throw error;
   }
 }
@@ -169,6 +333,7 @@ export async function getUserVulnerabilityReports(
           pda: item.publicKey,
           report: item.account as VulnerabilityReport,
           transactionId,
+          nftMint: (item.account as VulnerabilityReport).nftMint,
         };
       })
     );
@@ -201,9 +366,38 @@ export async function getReportByRepositoryId(
     const connection = program.provider.connection;
     const transactionId = await findTransactionSignature(connection, pda);
 
-    return { pda, report, transactionId };
+    return {
+      pda,
+      report,
+      transactionId,
+      nftMint: report.nftMint,
+    };
   } catch (e) {
     console.error("Error getting repository report:", e);
+    return null;
+  }
+}
+
+export async function getNFTMetadata(
+  connection: Connection,
+  mintAddress: PublicKey
+): Promise<any> {
+  try {
+    const [metadataPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata"),
+        TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+        mintAddress.toBuffer(),
+      ],
+      TOKEN_METADATA_PROGRAM_ID
+    );
+
+    const accountInfo = await connection.getAccountInfo(metadataPda);
+    if (!accountInfo) return null;
+
+    return { metadataPda, accountInfo };
+  } catch (error) {
+    console.error("Error fetching NFT metadata:", error);
     return null;
   }
 }

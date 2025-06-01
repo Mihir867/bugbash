@@ -1,92 +1,315 @@
 {
-    "address": "CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw",
-    "metadata": {
-      "name": "anchor",
-      "version": "0.1.0",
-      "spec": "0.1.0",
-      "description": "Created with Anchor"
+  "address": "CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw",
+  "metadata": {
+    "name": "anchor",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "initialize",
+      "discriminator": [175, 175, 109, 31, 13, 152, 155, 237],
+      "accounts": [],
+      "args": []
     },
-    "instructions": [
-      {
-        "name": "initialize",
-        "discriminator": [
-          175,
-          175,
-          109,
-          31,
-          13,
-          152,
-          155,
-          237
-        ],
-        "accounts": [],
-        "args": []
-      },
-      {
-        "name": "store_vulnerability_report",
-        "discriminator": [
-          197,
-          52,
-          219,
-          240,
-          56,
-          52,
-          185,
-          4
-        ],
-        "accounts": [
-          {
-            "name": "vulnerability_report",
-            "writable": true,
-            "pda": {
-              "seeds": [
-                {
-                  "kind": "const",
-                  "value": [
-                    118,
-                    117,
-                    108,
-                    110,
-                    101,
-                    114,
-                    97,
-                    98,
-                    105,
-                    108,
-                    105,
-                    116,
-                    121,
-                    95,
-                    114,
-                    101,
-                    112,
-                    111,
-                    114,
-                    116
-                  ]
-                },
-                {
-                  "kind": "account",
-                  "path": "reporter"
-                },
-                {
-                  "kind": "arg",
-                  "path": "repository_id"
-                }
-              ]
-            }
-          },
-          {
-            "name": "reporter",
-            "writable": true,
-            "signer": true
-          },
-          {
-            "name": "system_program",
-            "address": "11111111111111111111111111111111"
+    {
+      "name": "store_vulnerability_report",
+      "discriminator": [45, 178, 95, 102, 181, 158, 200, 140],
+      "accounts": [
+        {
+          "name": "vulnerability_report",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118, 117, 108, 110, 101, 114, 97, 98, 105, 108, 105, 116, 121,
+                  95, 114, 101, 112, 111, 114, 116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "reporter"
+              },
+              {
+                "kind": "arg",
+                "path": "repository_id"
+              }
+            ]
           }
-        ],
-        "args": [
+        },
+        {
+          "name": "reporter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rent",
+          "writable": false,
+          "signer": false,
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "repository_id",
+          "type": "string"
+        },
+        {
+          "name": "report_url",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "mint_security_badge_nft",
+      "discriminator": [241, 76, 59, 82, 165, 234, 180, 93],
+      "accounts": [
+        {
+          "name": "vulnerability_report",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118, 117, 108, 110, 101, 114, 97, 98, 105, 108, 105, 116, 121,
+                  95, 114, 101, 112, 111, 114, 116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "reporter"
+              },
+              {
+                "kind": "arg",
+                "path": "repository_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [109, 105, 110, 116]
+              },
+              {
+                "kind": "account",
+                "path": "reporter"
+              },
+              {
+                "kind": "arg",
+                "path": "repository_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_account",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "metadata",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "reporter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rent",
+          "writable": false,
+          "signer": false,
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "writable": false,
+          "signer": false,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "writable": false,
+          "signer": false,
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_metadata_program",
+          "writable": false,
+          "signer": false,
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        }
+      ],
+      "args": [
+        {
+          "name": "repository_id",
+          "type": "string"
+        },
+        {
+          "name": "metadata_title",
+          "type": "string"
+        },
+        {
+          "name": "metadata_symbol",
+          "type": "string"
+        },
+        {
+          "name": "metadata_uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "store_vulnerability_report_and_mint_nft",
+      "discriminator": [198, 53, 220, 241, 57, 53, 186, 5],
+      "accounts": [
+        {
+          "name": "vulnerability_report",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118, 117, 108, 110, 101, 114, 97, 98, 105, 108, 105, 116, 121,
+                  95, 114, 101, 112, 111, 114, 116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "reporter"
+              },
+              {
+                "kind": "arg",
+                "path": "repository_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [109, 105, 110, 116]
+              },
+              {
+                "kind": "account",
+                "path": "reporter"
+              },
+              {
+                "kind": "arg",
+                "path": "repository_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_account",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "metadata",
+          "writable": true,
+          "signer": false
+        },
+        {
+          "name": "reporter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rent",
+          "writable": false,
+          "signer": false,
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "writable": false,
+          "signer": false,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "writable": false,
+          "signer": false,
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_metadata_program",
+          "writable": false,
+          "signer": false,
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        }
+      ],
+      "args": [
+        {
+          "name": "repository_id",
+          "type": "string"
+        },
+        {
+          "name": "report_url",
+          "type": "string"
+        },
+        {
+          "name": "metadata_title",
+          "type": "string"
+        },
+        {
+          "name": "metadata_symbol",
+          "type": "string"
+        },
+        {
+          "name": "metadata_uri",
+          "type": "string"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "VulnerabilityReport",
+      "discriminator": [219, 119, 63, 125, 101, 147, 0, 122]
+    }
+  ],
+  "types": [
+    {
+      "name": "VulnerabilityReport",
+      "type": {
+        "kind": "struct",
+        "fields": [
           {
             "name": "repository_id",
             "type": "string"
@@ -94,49 +317,21 @@
           {
             "name": "report_url",
             "type": "string"
+          },
+          {
+            "name": "reporter",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
           }
         ]
       }
-    ],
-    "accounts": [
-      {
-        "name": "VulnerabilityReport",
-        "discriminator": [
-          219,
-          119,
-          63,
-          125,
-          101,
-          147,
-          0,
-          122
-        ]
-      }
-    ],
-    "types": [
-      {
-        "name": "VulnerabilityReport",
-        "type": {
-          "kind": "struct",
-          "fields": [
-            {
-              "name": "repository_id",
-              "type": "string"
-            },
-            {
-              "name": "report_url",
-              "type": "string"
-            },
-            {
-              "name": "reporter",
-              "type": "pubkey"
-            },
-            {
-              "name": "timestamp",
-              "type": "i64"
-            }
-          ]
-        }
-      }
-    ]
-  }
+    }
+  ]
+}
