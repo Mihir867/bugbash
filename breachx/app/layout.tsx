@@ -8,7 +8,7 @@ import SolanaProvider from '@/lib/solana-provider';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
-  title: 'Breach X',
+  title: 'BreachX',
   description: 'We find Vulnerability before they find you',
 };
 
