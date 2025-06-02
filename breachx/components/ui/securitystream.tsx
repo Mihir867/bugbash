@@ -13,6 +13,7 @@ interface SecurityLogStreamProps {
   deploymentUrl?: string;
   maxHeight?: string;
   autoScroll?: boolean;
+  githubUrl?: string; // Optional prop for GitHub URL
 }
 
 interface ScanResponse {
@@ -22,14 +23,19 @@ interface ScanResponse {
 interface LogData {
   message: string;
   level?: 'error' | 'warning' | 'success' | 'info';
+  type?: string;
 }
 
 interface CompleteEventData {
+  message: string;
   summary: string;
+  timestamp: number;
+  type: string;
 }
 
 const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({ 
-  deploymentUrl, 
+  deploymentUrl,
+  githubUrl,
   maxHeight = "500px", 
   autoScroll = true 
 }) => {
@@ -37,6 +43,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [pdfReportUrl, setPdfReportUrl] = useState<string | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -56,17 +63,21 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       return;
     }
 
+    console.log('🚀 Starting security scan for URL:', deploymentUrl);
     setIsLoading(true);
     setError(null);
     setLogs([]);
+    setPdfReportUrl(null);
 
     try {
       // Close existing connection if any
       if (eventSourceRef.current) {
+        console.log('🔄 Closing existing event source connection');
         eventSourceRef.current.close();
       }
 
       // Start the scanning process
+      console.log('📡 Sending scan request to API');
       const response = await fetch('/api/security-scan', {
         method: 'POST',
         headers: {
@@ -80,17 +91,21 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       }
 
       const { scanId }: ScanResponse = await response.json();
+      console.log('📝 Received scan ID:', scanId);
 
       // Connect to SSE endpoint for real-time logs
+      console.log('🔌 Connecting to SSE endpoint');
       const eventSource = new EventSource(`/api/security-scan/logs?scanId=${scanId}`);
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = (): void => {
+        console.log('✅ EventSource connection opened successfully');
         setIsConnected(true);
         setIsLoading(false);
       };
 
       eventSource.onmessage = (event: MessageEvent): void => {
+        console.log('📨 Received SSE message:', event.data);
         const logData: LogData = JSON.parse(event.data);
         
         setLogs(prev => [...prev, {
@@ -102,15 +117,26 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       };
 
       eventSource.onerror = (error: Event): void => {
-        console.error('SSE error:', error);
+        console.error('❌ SSE error details:', {
+          error,
+          readyState: eventSource.readyState,
+          url: eventSource.url
+        });
         setError('Connection to log stream failed');
         setIsConnected(false);
         setIsLoading(false);
         eventSource.close();
+        
+        // Fetch latest report when connection is closed
+        console.log('🔍 Connection closed, fetching latest report');
+        fetchLatestReport();
       };
 
-      eventSource.addEventListener('complete', (event: MessageEvent): void => {
+      eventSource.addEventListener('complete', async (event: MessageEvent): Promise<void> => {
+        console.log('🏁 Scan completed event received');
         const data: CompleteEventData = JSON.parse(event.data);
+        console.log('📊 Scan completion data:', data);
+        
         setLogs(prev => [...prev, {
           id: Date.now() + Math.random(),
           timestamp: new Date().toISOString(),
@@ -119,9 +145,50 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
         }]);
         setIsConnected(false);
         eventSource.close();
+        
+        // Fetch latest report when scan completes
+        console.log('🔍 Scan completed, fetching latest report');
+        fetchLatestReport();
       });
 
+      // Function to fetch the latest report
+      const fetchLatestReport = async () => {
+        try {
+          console.log('📡 Fetching latest report from API');
+          const response = await fetch('/api/security-scan/report');
+          const result = await response.json();
+          
+          if (result.reportUrl) {
+            console.log('✅ Latest report URL found:', result.reportUrl);
+            setPdfReportUrl(result.reportUrl);
+            setLogs(prev => [...prev, {
+              id: Date.now() + Math.random(),
+              timestamp: new Date().toISOString(),
+              message: `Latest security report is available (generated: ${new Date(result.lastModified).toLocaleString()})`,
+              level: 'success'
+            }]);
+          } else {
+            console.log('❌ No report URL found in result:', result);
+            setLogs(prev => [...prev, {
+              id: Date.now() + Math.random(),
+              timestamp: new Date().toISOString(),
+              message: 'No security report available',
+              level: 'warning'
+            }]);
+          }
+        } catch (err) {
+          console.error('❌ Error fetching report:', err);
+          setLogs(prev => [...prev, {
+            id: Date.now() + Math.random(),
+            timestamp: new Date().toISOString(),
+            message: 'Failed to fetch security report',
+            level: 'error'
+          }]);
+        }
+      };
+
     } catch (err) {
+      console.error('❌ Error in startScanning:', err);
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
       setError(errorMessage);
       setIsLoading(false);
@@ -158,7 +225,33 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
     };
   }, []);
 
+
   return (
+    <>
+   {pdfReportUrl && (
+  <a
+    href={`/reports?pdfUrl=${encodeURIComponent(pdfReportUrl)}&repoUrl=${encodeURIComponent(githubUrl || '')}`}
+    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center space-x-1"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+      />
+    </svg>
+    <span>View Report</span>
+  </a>
+)}
+
+
     <div className="w-full bg-gray-900 rounded-lg border border-gray-700">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-700">
@@ -173,6 +266,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
         </div>
         
         <div className="flex space-x-2">
+          
           <button
             onClick={startScanning}
             disabled={isLoading || isConnected || !deploymentUrl}
@@ -207,7 +301,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
 
       {/* Logs Display */}
       <div 
-        className="p-4 overflow-y-auto font-mono text-sm"
+        className="p-4 overflow-y-auto min-h-[400px] font-mono text-sm"
         style={{ maxHeight }}
       >
         {logs.length === 0 && !isLoading && (
@@ -247,6 +341,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
         </div>
       </div>
     </div>
+    </>
   );
 };
 

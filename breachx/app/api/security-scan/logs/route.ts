@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { CloudWatchLogsClient, GetLogEventsCommand, DescribeLogStreamsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
@@ -103,13 +102,34 @@ export async function GET(request: NextRequest) {
           const logStreamName = getLogStreamName(scanSession.taskArn);
           
           console.log('Getting ALL logs for stream:', logStreamName);
+          console.log('Task ARN:', scanSession.taskArn);
+
+          // First, verify if the log stream exists
+          try {
+            const describeParams = {
+              logGroupName: '/ecs/security-scanner',
+              logStreamNamePrefix: logStreamName,
+              limit: 1
+            };
+            
+            const describeCommand = new DescribeLogStreamsCommand(describeParams);
+            const describeResponse = await logsClient.send(describeCommand);
+            
+            console.log('Available log streams:', describeResponse.logStreams?.map(stream => stream.logStreamName));
+            
+            if (!describeResponse.logStreams || describeResponse.logStreams.length === 0) {
+              throw new Error(`Log stream ${logStreamName} not found. Available streams: ${JSON.stringify(describeResponse.logStreams)}`);
+            }
+          } catch (describeError) {
+            console.error('Error describing log streams:', describeError);
+            throw describeError;
+          }
 
           // Get all logs from the beginning
           const params = {
             logGroupName: '/ecs/security-scanner',
             logStreamName: logStreamName,
-            startFromHead: true, // This ensures we get ALL logs from the beginning
-            // Don't use nextToken on the first call to get everything
+            startFromHead: true,
           };
 
           console.log('Fetching ALL logs with params:', params);
@@ -142,14 +162,59 @@ export async function GET(request: NextRequest) {
 
         } catch (error: any) {
           console.error('Error getting all logs:', error);
+          throw error; // Re-throw to handle in the retry mechanism
+        }
+      };
+
+      // Function to continuously try to fetch logs
+      const continuouslyFetchLogs = async (): Promise<void> => {
+        let attempts = 0;
+        const maxAttempts = 30; // Increased max attempts
+        const baseDelay = 2000; // Start with 2 second delay
+
+        while (attempts < maxAttempts && streamingActive) {
+          try {
+            console.log(`Attempt ${attempts + 1} to fetch logs...`);
+            await getAllLogs();
+            
+            if (allLogsSent) {
+              console.log('Successfully retrieved logs');
+              return; // Exit if successful
+            }
+          } catch (error: any) {
+            console.log(`Attempt ${attempts + 1} failed:`, error.message);
+            
+            // Calculate delay with exponential backoff and jitter
+            const exponentialDelay = baseDelay * Math.pow(2, attempts);
+            const jitter = Math.random() * 1000; // Add up to 1 second of random jitter
+            const delay = Math.min(exponentialDelay + jitter, 30000); // Cap at 30 seconds
+            
+            console.log(`Waiting ${Math.round(delay/1000)} seconds before next attempt...`);
+            
+            // Send status update to client
+            const statusMessage = `data: ${JSON.stringify({ 
+              message: `Waiting for logs to become available (attempt ${attempts + 1}/${maxAttempts})...`,
+              level: 'info',
+              timestamp: Date.now(),
+              type: 'status'
+            })}\n\n`;
+            controller.enqueue(new TextEncoder().encode(statusMessage));
+            
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
           
+          attempts++;
+        }
+
+        if (!allLogsSent) {
           const errorMessage = `data: ${JSON.stringify({ 
-            message: `Error fetching logs: ${error.message}`,
-            level: 'error',
+            message: 'Could not fetch initial logs after multiple attempts, will continue polling for new logs',
+            level: 'warning',
             timestamp: Date.now(),
-            type: 'error'
+            type: 'warning'
           })}\n\n`;
           controller.enqueue(new TextEncoder().encode(errorMessage));
+          allLogsSent = true;
         }
       };
 
@@ -253,46 +318,29 @@ export async function GET(request: NextRequest) {
 
       // Start the process
       const startStreaming = async () => {
-        // Send initial message
+        // Send initial connection message immediately
         const startMessage = `data: ${JSON.stringify({ 
-          message: 'Fetching scan logs...', 
+          message: 'Connected to scan logs stream', 
           level: 'info',
           timestamp: Date.now(),
           type: 'status'
         })}\n\n`;
         controller.enqueue(new TextEncoder().encode(startMessage));
 
-        // Wait a bit for the container to start
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Send a message indicating we're waiting for logs
+        const waitingMessage = `data: ${JSON.stringify({ 
+          message: 'Waiting for scan to initialize...', 
+          level: 'info',
+          timestamp: Date.now(),
+          type: 'status'
+        })}\n\n`;
+        controller.enqueue(new TextEncoder().encode(waitingMessage));
 
-        // Try to get all existing logs
-        let retries = 0;
-        const maxRetries = 10;
-        
-        while (!allLogsSent && retries < maxRetries && streamingActive) {
-          try {
-            await getAllLogs();
-            if (allLogsSent) {
-              break;
-            }
-          } catch (error) {
-            console.log(`Retry ${retries + 1} to get logs...`);
-          }
-          
-          retries++;
-          await new Promise(resolve => setTimeout(resolve, 3000));
-        }
+        // Wait for initial setup
+        await new Promise(resolve => setTimeout(resolve, 20000));
 
-        if (!allLogsSent) {
-          const errorMessage = `data: ${JSON.stringify({ 
-            message: 'Could not fetch initial logs, will continue polling for new logs',
-            level: 'warning',
-            timestamp: Date.now(),
-            type: 'warning'
-          })}\n\n`;
-          controller.enqueue(new TextEncoder().encode(errorMessage));
-          allLogsSent = true; // Continue with polling
-        }
+        // Start continuous log fetching
+        await continuouslyFetchLogs();
 
         // Start polling for new logs
         if (streamingActive) {
