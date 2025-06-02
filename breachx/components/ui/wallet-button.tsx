@@ -32,7 +32,7 @@ export function WalletButton() {
     return (
       <Button 
         onClick={handleConnectClick}
-        className="bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-full px-4 h-9 shadow-md"
+        className="bg-gradient-to-r from-purple-600 to-blue-600 cursor-pointer text-white rounded-full px-4 h-9 shadow-md"
       >
         <WalletIcon className="w-4 h-4 mr-2" />
         Connect Wallet
@@ -46,7 +46,7 @@ export function WalletButton() {
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger asChild>
         <Button 
-          className="bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-full px-3 h-9 flex items-center shadow-md"
+          className="bg-gradient-to-r from-purple-600 to-blue-600 cursor-pointer text-white rounded-full px-3 h-9 flex items-center shadow-md"
         >
           <WalletIcon className="w-4 h-4 mr-2" />
           <span>{truncateAddress(walletAddress)}</span>

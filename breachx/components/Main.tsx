@@ -10,10 +10,29 @@ import {
   Users,
   Star,
   Landmark,
+  Loader2,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { signIn, useSession } from "next-auth/react";
+import { useState } from "react";
+import Link from "next/link";
 
 export default function Main() {
+  const { data: session, status } = useSession();
+  const loading = status === "loading";
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
+  const handleSignIn = async () => {
+    setIsSigningIn(true);
+    try {
+      await signIn("github");
+    } catch (error) {
+      console.error("Sign in error:", error);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   return (
     <main className="w-full bg-black text-white">
       {/* Section 1: Why Security Matters */}
@@ -32,9 +51,22 @@ export default function Main() {
             Security should be rewarded. BreachX gives developers the credit
             they deserve for writing safe, robust, and audit-ready code.
           </p>
-          <Button className="bg-white text-black px-6 hover:bg-white/90">
-            Learn More <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
+          {!loading && !session && (
+            <Button
+              onClick={handleSignIn}
+              disabled={isSigningIn}
+              className="cursor-pointer bg-white text-black px-6 hover:bg-white/90 disabled:opacity-70"
+            >
+              Learn More <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          )}
+          {session && (
+            <Link href="/dashboard">
+              <Button className="cursor-pointer bg-white text-black px-6 hover:bg-white/90">
+                Learn More <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          )}
         </motion.div>
       </section>
 
@@ -55,9 +87,22 @@ export default function Main() {
               badge they can embed in their GitHub profile or portfolio. Stand
               out with verified credibility.
             </p>
-            <Button className="bg-gradient-to-r from-purple-600 to-blue-600 px-5 text-white">
-              Explore Badges <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+            {(
+              <Button
+                onClick={handleSignIn}
+                disabled={isSigningIn}
+                className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 px-5 text-white disabled:opacity-70"
+              >
+                Explore Badges <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            )}
+            {/* {session && (
+              <Link href="/dashboard">
+                <Button className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 px-5 text-white">
+                  Explore Badges <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            )} */}
           </div>
           <div className="bg-purple-900/20 rounded-3xl p-10 border border-purple-400/20 shadow-xl backdrop-blur-xl">
             <ShieldCheck className="w-20 h-20 text-purple-400 mb-4" />
@@ -87,9 +132,11 @@ export default function Main() {
             View in-depth security metrics for all your repositories. Track,
             fix, and grow.
           </p>
-          <Button className="bg-white text-black px-6 hover:bg-white/90">
-            Go to Dashboard <BarChart3 className="ml-2 h-4 w-4" />
-          </Button>
+          <Link href="/dashboard">
+            <Button className="cursor-pointer bg-white text-black px-6 hover:bg-white/90">
+              Go to Dashboard <BarChart3 className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
         </motion.div>
       </section>
 
@@ -117,9 +164,22 @@ export default function Main() {
               BreachX connects directly with your GitHub account to audit public
               repos. Secure your codebase in just a few clicks.
             </p>
-            <Button className="bg-gradient-to-r from-purple-600 to-blue-600 px-5 text-white">
-              Connect GitHub <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+            {!loading && !session && (
+              <Button
+                onClick={handleSignIn}
+                disabled={isSigningIn}
+                className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 px-5 text-white disabled:opacity-70"
+              >
+                Connect GitHub <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            )}
+            {session && (
+              <Link href="/dashboard">
+                <Button className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 px-5 text-white">
+                  Connect GitHub <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            )}
           </div>
         </motion.div>
       </section>
@@ -140,9 +200,22 @@ export default function Main() {
               Let BreachX's AI automatically detect insecure patterns, outdated
               libraries, and vulnerable logic in real time.
             </p>
-            <Button className="bg-white text-black px-6 hover:bg-white/90">
-              Start Scanning <Sparkles className="ml-2 h-4 w-4" />
-            </Button>
+            {!loading && !session && (
+              <Button
+                onClick={handleSignIn}
+                disabled={isSigningIn}
+                className="cursor-pointer bg-white text-black px-6 hover:bg-white/90 disabled:opacity-70"
+              >
+                Start Scanning <Sparkles className="ml-2 h-4 w-4" />
+              </Button>
+            )}
+            {session && (
+              <Link href="/dashboard">
+                <Button className="cursor-pointer bg-white text-black px-6 hover:bg-white/90">
+                  Start Scanning <Sparkles className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            )}
           </div>
           <div className="bg-purple-900/20 rounded-3xl p-10 border border-purple-400/20 shadow-xl backdrop-blur-xl">
             <Sparkles className="w-20 h-20 text-purple-400 mb-4" />
@@ -171,9 +244,22 @@ export default function Main() {
             Join the community of secure developers. Climb the leaderboard, earn
             monthly rewards, and get recognized for writing safe code.
           </p>
-          <Button className="bg-gradient-to-r from-purple-600 to-blue-600 px-6 text-white">
-            Join Community <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
+          {!loading && !session && (
+            <Button
+              onClick={handleSignIn}
+              disabled={isSigningIn}
+              className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 px-6 text-white disabled:opacity-70"
+            >
+              Join Community <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          )}
+          {session && (
+            <Link href="/dashboard">
+              <Button className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 px-6 text-white">
+                Join Community <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          )}
         </motion.div>
       </section>
 
@@ -217,9 +303,22 @@ export default function Main() {
           <p className="text-purple-100/80 mb-8">
             Join thousands of developers securing their code with BreachX.
           </p>
-          <Button className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6">
-            Get Started Now <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
+          {!loading && !session && (
+            <Button
+              onClick={handleSignIn}
+              disabled={isSigningIn}
+              className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 disabled:opacity-70"
+            >
+              Get Started Now <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          )}
+          {session && (
+            <Link href="/dashboard">
+              <Button className="cursor-pointer bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6">
+                Get Started Now <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          )}
           <p className="text-sm text-purple-100/40 mt-8">
             © {new Date().getFullYear()} BreachX. All rights reserved.
           </p>
