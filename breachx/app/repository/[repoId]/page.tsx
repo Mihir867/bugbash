@@ -218,11 +218,13 @@ export default function RepositoryDetail() {
       }
 
       const repoData = await repoResponse.json();
+      console.log('Repository Data:', repoData); // Debug log
       setRepository(repoData);
 
       const configResponse = await fetch(`/api/repoConfig/${repoId}`);
       if (configResponse.ok) {
         const configData = await configResponse.json();
+        console.log('Config Data:', configData); // Debug log
         setRepoConfig(configData);
       }
     } catch (error) {
@@ -378,6 +380,8 @@ export default function RepositoryDetail() {
       </div>
     );
   }
+
+  console.log("Repository details:", repository);
 
   return (
     <div className="max-w-7xl mx-auto px-4 pb-8 pt-20 min-h-screen bg-black text-foreground">
@@ -695,12 +699,13 @@ export default function RepositoryDetail() {
                 >
                   {/* Use BuildLogStream component for WebSocket-based log streaming */}
                   <SecurityLogStream
+                    githubUrl={repository?.repository?.url || ''}
                     deploymentUrl={repoConfig?.deploymentUrl || ""}
                     maxHeight="500px"
                     autoScroll={true}
                   />
                 </motion.div>
-              )}{" "}
+              )}
             </div>
           </CardContent>
         </Card>

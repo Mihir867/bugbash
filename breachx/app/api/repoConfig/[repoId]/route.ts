@@ -211,7 +211,8 @@ export async function GET(req: NextRequest) {
           c."updatedAt",
           r."name" as "repositoryName",
           r."repoId",
-          r."userId"
+          r."userId",
+          r."url" as "repositoryUrl"
         FROM "Repository" r
         LEFT JOIN "RepositoryConfig" c ON r."id" = c."repositoryId"
         WHERE r."id" = ${repository.id}
@@ -227,7 +228,8 @@ export async function GET(req: NextRequest) {
           name: repositoryConfig.repositoryName,
           repoId: repositoryConfig.repoId,
           projectId: repositoryConfig.projectId,
-          userId: repositoryConfig.userId
+          userId: repositoryConfig.userId,
+          url: repositoryConfig.repositoryUrl
         };
         
         // Remove duplicate fields
@@ -235,6 +237,7 @@ export async function GET(req: NextRequest) {
         delete repositoryConfig.repoId;
         delete repositoryConfig.projectId;
         delete repositoryConfig.userId;
+        delete repositoryConfig.repositoryUrl;
       }
     } catch (sqlError) {
       console.error("Error executing raw SQL query:", sqlError);
