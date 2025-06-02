@@ -2,11 +2,28 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { ArrowRight, BookOpen } from "lucide-react";
+import { ArrowRight, BookOpen, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
+import { signIn, useSession } from "next-auth/react";
+import Link from "next/link";
 
 export default function Heros() {
+  const { data: session, status } = useSession();
+  const loading = status === "loading";
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
+  const handleSignIn = async () => {
+    setIsSigningIn(true);
+    try {
+      await signIn("github");
+    } catch (error) {
+      console.error("Sign in error:", error);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   return (
     <main className="min-h-screen">
       {/* Hero Section */}
@@ -78,17 +95,33 @@ export default function Heros() {
             className="flex flex-col space-y-4 sm:flex-row sm:space-x-4 sm:space-y-0"
           >
             <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-              <Button className="bg-white px-6 text-black hover:bg-white/90">
-                Get Started <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              {!loading && !session && (
+                <Button
+                  onClick={handleSignIn}
+                  disabled={isSigningIn}
+                  className="cursor-pointer bg-white px-6 text-black hover:bg-white/90 disabled:opacity-70"
+                >
+                  Get Started <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              )}
+              {session && (
+                <Link href="/dashboard">
+                  <Button className="cursor-pointer bg-white px-6 text-black hover:bg-white/90">
+                    Get Started <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              )}
             </motion.div>
             <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-              <Button
-                variant="outline"
-                className="border-indigo-400/30 bg-transparent backdrop-blur-sm hover:bg-indigo-900/40"
-              >
-                <BookOpen className="mr-2 h-4 w-4" /> Dashboard
-              </Button>
+              <Link href="/dashboard">
+                <Button
+                  variant="outline"
+                  className="cursor-pointer border-purple-400/30 bg-transparent backdrop-blur-sm hover:bg-purple-400/30"
+                >
+                  <BookOpen className="mr-2 h-4 w-4 text-white" />{" "}
+                  <span className="text-white">Dashboard</span>
+                </Button>
+              </Link>
             </motion.div>
           </motion.div>
         </motion.div>

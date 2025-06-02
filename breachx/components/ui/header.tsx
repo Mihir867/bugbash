@@ -1,59 +1,60 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-"use client"
+"use client";
 
-import Link from "next/link"
-import { signIn, signOut, useSession } from "next-auth/react"
-import { useState, useEffect } from "react"
-import { motion, useScroll, AnimatePresence } from "framer-motion"
-import Image from "next/image"
-import { Menu, X } from "lucide-react"
-import { Button } from "./button"
-import { WalletButton } from "./wallet-button"
-import { useWallet } from "@solana/wallet-adapter-react"
+import Link from "next/link";
+import { signIn, signOut, useSession } from "next-auth/react";
+import { useState, useEffect } from "react";
+import { motion, useScroll, AnimatePresence } from "framer-motion";
+import Image from "next/image";
+import { Menu, X } from "lucide-react";
+import { Button } from "./button";
+import { WalletButton } from "./wallet-button";
+import { useWallet } from "@solana/wallet-adapter-react";
 
 export default function Header() {
-  const { data: session, status } = useSession()
-  const loading = status === "loading"
-  const [isOpen, setIsOpen] = useState(false)
-  const { connected } = useWallet()
+  const { data: session, status } = useSession();
+  const loading = status === "loading";
+  const [isOpen, setIsOpen] = useState(false);
+  const { connected } = useWallet();
 
-  const { scrollY } = useScroll()
-  const [hidden, setHidden] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
+  const { scrollY } = useScroll();
+  const [hidden, setHidden] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   // Close mobile menu when screen size changes
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 768) {
-        setIsOpen(false)
+        setIsOpen(false);
       }
-    }
+    };
 
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
-  }, [])
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // Handle scroll effects
-  
 
   // Prevent body scroll when mobile menu is open
   useEffect(() => {
     if (isOpen) {
-      document.body.style.overflow = "hidden"
+      document.body.style.overflow = "hidden";
     } else {
-      document.body.style.overflow = "unset"
+      document.body.style.overflow = "unset";
     }
 
     return () => {
-      document.body.style.overflow = "unset"
-    }
-  }, [isOpen])
+      document.body.style.overflow = "unset";
+    };
+  }, [isOpen]);
 
   return (
     <>
       <motion.div
         className={`fixed top-0 left-0 w-full z-50 transition-all duration-300 ${
-          scrolled ? "backdrop-blur-md bg-black/40 border-b border-gray-800/30" : "backdrop-blur-sm bg-black/20"
+          scrolled
+            ? "backdrop-blur-md bg-black/40 border-b border-gray-800/30"
+            : "backdrop-blur-sm bg-black/20"
         }`}
         initial={{ y: 0 }}
         animate={{ y: hidden ? "-100%" : "0%" }}
@@ -71,21 +72,21 @@ export default function Header() {
 
               {/* Desktop Navigation */}
               <nav className="hidden md:flex gap-6 items-center">
-                
-
                 {session && (
                   <>
-                    <Link href="/dashboard" className="text-gray-300 hover:text-white transition-colors">
+                    <Link
+                      href="/dashboard"
+                      className="text-gray-300 hover:text-white transition-colors"
+                    >
                       Dashboard
                     </Link>
-                    
                   </>
                 )}
 
                 {!loading && !session && (
                   <Button
                     onClick={() => signIn("github")}
-                    className="bg-blue-600/80 cursor-pointer hover:bg-blue-700/90 text-white px-4 py-2 rounded-md backdrop-blur-sm transition-all mr-2"
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 cursor-pointer text-white px-4 py-2 rounded-md backdrop-blur-sm transition-all mr-2"
                   >
                     Sign In with GitHub
                   </Button>
@@ -151,8 +152,6 @@ export default function Header() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex flex-col gap-6">
-                
-
                 {session && (
                   <>
                     <Link
@@ -162,15 +161,14 @@ export default function Header() {
                     >
                       Dashboard
                     </Link>
-                    
                   </>
                 )}
 
                 {!loading && !session && (
                   <Button
                     onClick={() => {
-                      setIsOpen(false)
-                      signIn("github")
+                      setIsOpen(false);
+                      signIn("github");
                     }}
                     className="bg-blue-600/80 cursor-pointer hover:bg-blue-700 text-white px-4 py-3 rounded-md text-lg font-medium w-full"
                   >
@@ -192,12 +190,14 @@ export default function Header() {
                           />
                         </div>
                       )}
-                      <span className="text-white font-medium">{session.user?.name}</span>
+                      <span className="text-white font-medium">
+                        {session.user?.name}
+                      </span>
                     </div>
                     <Button
                       onClick={() => {
-                        setIsOpen(false)
-                        signOut()
+                        setIsOpen(false);
+                        signOut();
                       }}
                       className="bg-red-600/70 cursor-pointer hover:bg-red-700 text-white px-4 py-3 rounded-md text-lg font-medium w-full"
                     >
@@ -211,5 +211,5 @@ export default function Header() {
         )}
       </AnimatePresence>
     </>
-  )
+  );
 }
