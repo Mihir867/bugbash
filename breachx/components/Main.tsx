@@ -8,7 +8,6 @@ import {
   BarChart3,
   Sparkles,
   Users,
-  Star,
   Landmark,
   Loader2,
 } from "lucide-react";
@@ -197,7 +196,7 @@ export default function Main() {
               ✨ AI-Powered Security Scans
             </h3>
             <p className="text-purple-100/90 mb-6">
-              Let BreachX's AI automatically detect insecure patterns, outdated
+              Let BreachX AI automatically detect insecure patterns, outdated
               libraries, and vulnerable logic in real time.
             </p>
             {!loading && !session && (
