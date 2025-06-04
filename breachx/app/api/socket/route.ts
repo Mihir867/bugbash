@@ -21,8 +21,8 @@ interface SocketAdapter {
 
 // Initialize Socket.IO
 function getSocketIO() {
-  if (io === null && typeof window === 'undefined') {
-    // Server-side only
+  if (io === null && typeof window === 'undefined' && process.env.NODE_ENV === 'production') {
+    // Server-side only and only in production
     const httpServer = createServer();
     io = new Server(httpServer, {
       cors: {
@@ -114,12 +114,12 @@ function getSocketIO() {
   return io;
 }
 
-// Initialize Socket.IO when module is loaded
-getSocketIO();
+// Don't initialize Socket.IO when module is loaded
+// getSocketIO();
 
 // This route handler just returns the Socket.IO server port
 export async function GET(request: NextRequest) {
-  // Initialize Socket.IO just in case
+  // Initialize Socket.IO only when the route is called
   getSocketIO();
   
   // Return information about the Socket.IO server
