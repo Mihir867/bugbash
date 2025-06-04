@@ -67,7 +67,7 @@ export default function Header() {
           <header className="py-4">
             <div className="container mx-auto flex justify-between items-center">
               <Link href="/" className="text-xl font-bold text-white z-10">
-                Breach X
+                BreachX
               </Link>
 
               {/* Desktop Navigation */}
