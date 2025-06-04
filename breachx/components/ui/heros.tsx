@@ -2,7 +2,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { ArrowRight, BookOpen, Loader2 } from "lucide-react";
+import { ArrowRight, BookOpen } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { signIn, useSession } from "next-auth/react";

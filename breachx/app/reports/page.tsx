@@ -77,11 +77,11 @@ const shortenPdfUrl = (url: string): string => {
 };
 
 
-export default function DemoPage({
-  searchParams,
-}: {
-  searchParams: { [key: string]: string | string[] | undefined };
-}) {
+interface PageProps {
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+export default function DemoPage({ searchParams }: PageProps) {
   const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
@@ -94,9 +94,8 @@ export default function DemoPage({
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
 
-  const [repositoryId, setRepositoryId] = useState<string>(
-    decodeURIComponent((searchParams.repoUrl as string) || "")
-  );
+  const [repositoryId, setRepositoryId] = useState<string>("");
+
   const [fullReportUrl, setFullReportUrl] = useState<string>("");
   const [reportUrl, setReportUrl] = useState<string>("");
 
@@ -135,15 +134,23 @@ export default function DemoPage({
   }, [publicKey, wallet, connection, txSignature, connected]);
 
   useEffect(() => {
-    // Update the state when URL parameters change
-    if (searchParams.repoUrl) {
-      setRepositoryId(decodeURIComponent(searchParams.repoUrl as string));
+    async function handleSearchParams() {
+      if (searchParams) {
+        const params = await searchParams;
+        
+        if (params?.repoUrl) {
+          setRepositoryId(decodeURIComponent(params.repoUrl as string));
+        }
+        
+        if (params?.pdfUrl) {
+          const decodedUrl = decodeURIComponent(params.pdfUrl as string);
+          setFullReportUrl(decodedUrl);
+          setReportUrl(shortenPdfUrl(decodedUrl));
+        }
+      }
     }
-    if (searchParams.pdfUrl) {
-      const decodedUrl = decodeURIComponent(searchParams.pdfUrl as string);
-      setFullReportUrl(decodedUrl);
-      setReportUrl(shortenPdfUrl(decodedUrl));
-    }
+
+    handleSearchParams();
   }, [searchParams]);
 
   const handleStoreReport = async () => {
