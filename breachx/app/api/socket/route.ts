@@ -26,9 +26,13 @@ function getSocketIO() {
     const httpServer = createServer();
     io = new Server(httpServer, {
       cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
-      }
+        origin: process.env.NEXT_PUBLIC_APP_URL || '*',
+        methods: ['GET', 'POST'],
+        credentials: true
+      },
+      transports: ['websocket', 'polling'],
+      pingTimeout: 60000,
+      pingInterval: 25000
     });
     
     // Listen on a different port than your Next.js app
@@ -56,15 +60,19 @@ function getSocketIO() {
         // Create a WebSocket adapter that translates to Socket.io
         const socketAdapter: SocketAdapter = {
           send: (data: string) => {
-            socket.emit('log', JSON.parse(data));
+            if (socket.connected) {
+              socket.emit('log', JSON.parse(data));
+            }
           },
           close: () => {
-            socket.emit('log', { 
-              type: 'info', 
-              message: 'Log stream closed' 
-            });
+            if (socket.connected) {
+              socket.emit('log', { 
+                type: 'info', 
+                message: 'Log stream closed' 
+              });
+            }
           },
-          readyState: 1,  // OPEN
+          readyState: socket.connected ? 1 : 0,  // OPEN or CLOSED
           OPEN: 1,
           on: (event: string, callback: Function) => {
             socket.on(event, callback as (...args: any[]) => void);
@@ -73,17 +81,32 @@ function getSocketIO() {
         
         // Start streaming logs
         try {
-          streamBuildLogs(buildId, socketAdapter as any);
-        } catch (error) {
-          socket.emit('log', { 
-            type: 'error', 
-            message: `Error streaming logs: ${error instanceof Error ? error.message : String(error)}` 
+          streamBuildLogs(buildId, socketAdapter as any).catch((error) => {
+            console.error('Error in streamBuildLogs:', error);
+            if (socket.connected) {
+              socket.emit('log', { 
+                type: 'error', 
+                message: `Error streaming logs: ${error instanceof Error ? error.message : String(error)}` 
+              });
+            }
           });
+        } catch (error) {
+          console.error('Error starting log stream:', error);
+          if (socket.connected) {
+            socket.emit('log', { 
+              type: 'error', 
+              message: `Error starting log stream: ${error instanceof Error ? error.message : String(error)}` 
+            });
+          }
         }
       });
       
-      socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
+      socket.on('disconnect', (reason) => {
+        console.log(`Client disconnected: ${socket.id}, reason: ${reason}`);
+      });
+
+      socket.on('error', (error) => {
+        console.error(`Socket error for client ${socket.id}:`, error);
       });
     });
   }

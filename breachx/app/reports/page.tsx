@@ -225,6 +225,7 @@ export default function DemoPage({ searchParams }: PageProps) {
     );
   };
 
+  console.log(reportUrl, "short", fullReportUrl)
   return (
     <div className="min-h-screen py-24">
       <div className="container mx-auto px-4 max-w-6xl">
