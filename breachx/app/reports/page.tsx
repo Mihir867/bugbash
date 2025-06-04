@@ -35,7 +35,53 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Image from "next/image";
 
-export default function DemoPage() {
+const shortenPdfUrl = (url: string): string => {
+  try {
+    const urlObj = new URL(url);
+    
+    // If it's a pre-signed URL (has AWS signature parameters), return the original URL
+    if (urlObj.search.includes('X-Amz-Signature') || 
+        urlObj.search.includes('X-Amz-Credential') || 
+        urlObj.search.includes('X-Amz-Algorithm')) {
+      return url;
+    }
+    
+    // Handle different S3 URL formats for non-pre-signed URLs
+    if (urlObj.hostname.includes('s3.amazonaws.com')) {
+      // Format: https://bucket-name.s3.amazonaws.com/path/to/file.pdf
+      const pathParts = urlObj.pathname.split('/').filter(part => part);
+      const fileName = pathParts[pathParts.length - 1];
+      const bucketName = urlObj.hostname.split('.')[0];
+      
+      return `https://${bucketName}.s3.amazonaws.com/${fileName}${urlObj.search}`;
+    } 
+    else if (urlObj.hostname.includes('amazonaws.com')) {
+      // Format: https://s3.region.amazonaws.com/bucket/path/to/file.pdf
+      const pathParts = urlObj.pathname.split('/').filter(part => part);
+      const fileName = pathParts[pathParts.length - 1];
+      const bucketName = pathParts[0];
+      
+      return `https://${bucketName}.s3.amazonaws.com/${fileName}${urlObj.search}`;
+    }
+    else {
+      // For other domains, just remove unnecessary path components
+      const pathParts = urlObj.pathname.split('/');
+      const fileName = pathParts[pathParts.length - 1];
+      
+      return `${urlObj.origin}/${fileName}${urlObj.search}`;
+    }
+  } catch (error) {
+    console.error('Error shortening URL:', error);
+    return url;
+  }
+};
+
+
+export default function DemoPage({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined };
+}) {
   const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
@@ -48,7 +94,10 @@ export default function DemoPage() {
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
 
-  const [repositoryId, setRepositoryId] = useState<string>("");
+  const [repositoryId, setRepositoryId] = useState<string>(
+    decodeURIComponent((searchParams.repoUrl as string) || "")
+  );
+  const [fullReportUrl, setFullReportUrl] = useState<string>("");
   const [reportUrl, setReportUrl] = useState<string>("");
 
   useEffect(() => {
@@ -85,6 +134,18 @@ export default function DemoPage() {
     loadUserReports();
   }, [publicKey, wallet, connection, txSignature, connected]);
 
+  useEffect(() => {
+    // Update the state when URL parameters change
+    if (searchParams.repoUrl) {
+      setRepositoryId(decodeURIComponent(searchParams.repoUrl as string));
+    }
+    if (searchParams.pdfUrl) {
+      const decodedUrl = decodeURIComponent(searchParams.pdfUrl as string);
+      setFullReportUrl(decodedUrl);
+      setReportUrl(shortenPdfUrl(decodedUrl));
+    }
+  }, [searchParams]);
+
   const handleStoreReport = async () => {
     if (!publicKey || !connected) {
       alert("Please connect your wallet first");
@@ -92,12 +153,12 @@ export default function DemoPage() {
     }
 
     if (!repositoryId.trim()) {
-      alert("Repository ID is required");
+      alert("Repository URL is required");
       return;
     }
 
-    if (!reportUrl.trim()) {
-      alert("Report URL is required");
+    if (!fullReportUrl.trim()) {
+      alert("PDF Report URL is required");
       return;
     }
 
@@ -119,6 +180,7 @@ export default function DemoPage() {
       setTxSignature(tx);
 
       setRepositoryId("");
+      setFullReportUrl("");
       setReportUrl("");
 
       await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -211,36 +273,33 @@ export default function DemoPage() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label className="text-white" htmlFor="repositoryId">
-                      Repository ID
+                      Repository URL
                     </Label>
                     <Input
                       id="repositoryId"
-                      placeholder="e.g., github.com/user/repo"
+                      placeholder="e.g., https://github.com/user/repo"
                       value={repositoryId}
-                      onChange={(e) => setRepositoryId(e.target.value)}
-                      className="bg-gray-950/50 border-gray-800 text-white"
+                      readOnly
+                      className="bg-gray-950/50 border-gray-800 text-white cursor-not-allowed"
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label className="text-white" htmlFor="reportUrl">
-                      Report URL
+                      PDF Report URL
                     </Label>
                     <Input
                       id="reportUrl"
-                      placeholder="https://example.com/vulnerability-report"
+                      placeholder="https://example.com/vulnerability-report.pdf"
                       value={reportUrl}
-                      onChange={(e) => setReportUrl(e.target.value)}
-                      className="bg-gray-950/50 border-gray-800 text-white"
+                      readOnly
+                      className="bg-gray-950/50 border-gray-800 text-white cursor-not-allowed"
                     />
                   </div>
 
                   <div className="bg-gray-950/60 rounded-lg p-4 border border-gray-800/60">
                     <p className="text-sm text-gray-400">
-                      <span className="text-yellow-500">Note:</span> Each
-                      repository ID must be unique. If you submit a report with
-                      an existing repository ID, it will overwrite the previous
-                      report.
+                      <span className="text-yellow-500">Note:</span> The PDF report URL has been simplified for display. The full URL will be stored on the blockchain.
                     </p>
                   </div>
                 </div>
