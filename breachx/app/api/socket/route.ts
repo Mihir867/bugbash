@@ -6,6 +6,7 @@ import { NextRequest } from 'next/server';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { streamBuildLogs } from '@/lib/aws/codebuild';
+import { streamSecurityLogs } from '@/lib/aws/security';
 
 // Singleton to ensure we only have one Socket.IO server
 let io: Server | null = null;
@@ -32,7 +33,8 @@ function getSocketIO() {
       },
       transports: ['websocket', 'polling'],
       pingTimeout: 60000,
-      pingInterval: 25000
+      pingInterval: 25000,
+      path: '/api/socket.io'
     });
     
     // Listen on a different port than your Next.js app
@@ -100,17 +102,64 @@ function getSocketIO() {
           }
         }
       });
-      
-      socket.on('disconnect', (reason) => {
-        console.log(`Client disconnected: ${socket.id}, reason: ${reason}`);
-      });
 
-      socket.on('error', (error) => {
-        console.error(`Socket error for client ${socket.id}:`, error);
+      // Listen for security log subscription requests
+      socket.on('subscribe-to-security', (data: { deploymentUrl: string; githubUrl?: string }) => {
+        console.log(`Client ${socket.id} subscribing to security logs for: ${data.deploymentUrl}`);
+        
+        if (!data.deploymentUrl) {
+          socket.emit('security-log', {
+            type: 'error',
+            message: 'No deployment URL provided'
+          });
+          return;
+        }
+        
+        // Create a WebSocket adapter that translates to Socket.io
+        const socketAdapter: SocketAdapter = {
+          send: (data: string) => {
+            if (socket.connected) {
+              socket.emit('security-log', JSON.parse(data));
+            }
+          },
+          close: () => {
+            if (socket.connected) {
+              socket.emit('security-log', { 
+                type: 'info', 
+                message: 'Security log stream closed' 
+              });
+            }
+          },
+          readyState: socket.connected ? 1 : 0,  // OPEN or CLOSED
+          OPEN: 1,
+          on: (event: string, callback: Function) => {
+            socket.on(event, callback as (...args: any[]) => void);
+          }
+        };
+        
+        // Start streaming security logs
+        try {
+          streamSecurityLogs(data.deploymentUrl, data.githubUrl || '', socketAdapter as any).catch((error) => {
+            console.error('Error in streamSecurityLogs:', error);
+            if (socket.connected) {
+              socket.emit('security-log', { 
+                type: 'error', 
+                message: `Error streaming security logs: ${error instanceof Error ? error.message : String(error)}` 
+              });
+            }
+          });
+        } catch (error) {
+          console.error('Error starting security log stream:', error);
+          if (socket.connected) {
+            socket.emit('security-log', { 
+              type: 'error', 
+              message: `Error starting security log stream: ${error instanceof Error ? error.message : String(error)}` 
+            });
+          }
+        }
       });
     });
   }
-  
   return io;
 }
 
@@ -123,10 +172,14 @@ export async function GET(request: NextRequest) {
   getSocketIO();
   
   // Return information about the Socket.IO server
+  const protocol = process.env.NODE_ENV === 'production' ? 'wss' : 'ws';
+  const socketUrl = process.env.NEXT_PUBLIC_SOCKET_IO_URL || 
+    `${protocol}://${process.env.HOSTNAME || 'localhost'}:${process.env.SOCKET_IO_PORT || 3001}`;
+  
   return new Response(
     JSON.stringify({
       status: 'ok',
-      socketUrl: `${process.env.NEXT_PUBLIC_SOCKET_IO_URL || `http://localhost:${process.env.SOCKET_IO_PORT || 3001}`}`
+      socketUrl
     }),
     {
       status: 200,

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/prefer-as-const */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { ECSClient, RunTaskCommand, RunTaskCommandInput } from '@aws-sdk/client-ecs';
 import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
@@ -83,16 +84,11 @@ export async function POST(request: NextRequest) {
     const sessionData = {
       taskArn,
       targetUrl,
-      startTime: new Date(),
-      status: 'running',
-    };
+      startTime: new Date().toISOString(),
+      status: 'RUNNING' as 'RUNNING', // now it's a literal type
+    };    
 
     scanSessions.set(scanId, sessionData);
-
-    console.log('Created scan session:', scanId);
-    console.log('Session data:', sessionData);
-    console.log('Total sessions after creation:', scanSessions.size);
-    console.log('All session IDs:', Array.from(scanSessions.keys()));
 
     return NextResponse.json({
       scanId,

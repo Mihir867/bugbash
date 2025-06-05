@@ -1,8 +1,7 @@
 interface ScanSession {
     taskArn: string;
-    targetUrl: string;
-    startTime: Date;
-    status: string;
+    startTime: string;
+    status: 'RUNNING' | 'STOPPED' | 'FAILED';
   }
   
   declare global {
