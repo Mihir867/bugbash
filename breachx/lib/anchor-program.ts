@@ -10,7 +10,7 @@ import {
 import { Anchor } from "./contract/types/anchor";
 import idl from "./contract/idl/anchor.json";
 
-export const PROGRAM_ID = "CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw";
+export const PROGRAM_ID = "gK7LKdzB7mKMHGg7Tio7Yatjhrb6V3yAGkYTqbTSoKz";
 
 export type VulnerabilityReport = {
   repositoryId: string;

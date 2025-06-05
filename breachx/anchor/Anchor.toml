@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-anchor = "CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw"
+anchor = "gK7LKdzB7mKMHGg7Tio7Yatjhrb6V3yAGkYTqbTSoKz"
 
 [registry]
 url = "https://api.apr.dev"

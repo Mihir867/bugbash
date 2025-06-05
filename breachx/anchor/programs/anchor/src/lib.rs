@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("CT2TbWY3ny6wn6jRq3RPdqh4gnmtupzNhdJHeWCkzaKw");
+declare_id!("gK7LKdzB7mKMHGg7Tio7Yatjhrb6V3yAGkYTqbTSoKz");
 
 #[program]
 pub mod anchor {
@@ -36,8 +36,8 @@ pub struct StoreVulnerabilityReport<'info> {
         init,
         payer = reporter,
         space = 8 + // discriminator
-               4 + 50 + // repository_id (String with max 50 chars)
-               4 + 200 + // report_url (String with max 200 chars)
+               4 + 200 + // repository_id (String with max 200 chars)
+               4 + 1000 + // report_url (String with max 1000 chars)
                32 + // reporter pubkey
                8, // timestamp
         seeds = [
