@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-async-client-component */
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
@@ -364,13 +365,21 @@ const SuccessModal = ({
 };
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     pdfUrl?: string;
     repoUrl?: string;
-  };
+  }>;
 }
 
-export default function DemoPage({ searchParams }: PageProps) {
+export default async function DemoPage({ searchParams }: PageProps) {
+  // Await the searchParams Promise
+  const params = await searchParams;
+  
+  return <DemoPageClient initialParams={params} />;
+
+}
+function DemoPageClient({ initialParams }: { initialParams: { pdfUrl?: string; repoUrl?: string } }) {
+
   const { connection } = useConnection();
   const { publicKey, connected } = useWallet();
   const anchorWallet = useAnchorWallet();
@@ -382,17 +391,17 @@ export default function DemoPage({ searchParams }: PageProps) {
   const [copied, setCopied] = useState(false);
   const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [reportUrl, setReportUrl] = useState<string>(searchParams.pdfUrl || '');
-  const [repositoryId, setRepositoryId] = useState<string>(searchParams.repoUrl || '');
+  const [reportUrl, setReportUrl] = useState<string>(initialParams.pdfUrl || '');
+  const [repositoryId, setRepositoryId] = useState<string>(initialParams.repoUrl || '');
 
   useEffect(() => {
-    if (searchParams.pdfUrl) {
-      setReportUrl(searchParams.pdfUrl);
+    if (initialParams.pdfUrl) {
+      setReportUrl(initialParams.pdfUrl);
     }
-    if (searchParams.repoUrl) {
-      setRepositoryId(searchParams.repoUrl);
+    if (initialParams.repoUrl) {
+      setRepositoryId(initialParams.repoUrl);
     }
-  }, [searchParams]);
+  }, [initialParams]);
 
   useEffect(() => {
     if (connected && anchorWallet) {
