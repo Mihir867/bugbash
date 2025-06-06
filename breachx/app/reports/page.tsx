@@ -358,10 +358,10 @@ const SuccessModal = ({
 };
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     pdfUrl?: string;
     repoUrl?: string;
-  };
+  }>;
 }
 
 export default function DemoPage({ searchParams }: PageProps) {
@@ -382,18 +382,28 @@ export default function DemoPage({ searchParams }: PageProps) {
   const [fullReportUrl, setFullReportUrl] = useState<string>("");
   const [reportUrl, setReportUrl] = useState<string>("");
 
-  // Handle search params immediately on component mount
+  // Handle search params with Promise
   useEffect(() => {
-    if (searchParams?.repoUrl) {
-      const decodedRepoUrl = decodeURIComponent(searchParams.repoUrl);
-      setRepositoryId(decodedRepoUrl);
-    }
+    const handleSearchParams = async () => {
+      try {
+        const params = await searchParams;
+        
+        if (params?.repoUrl) {
+          const decodedRepoUrl = decodeURIComponent(params.repoUrl);
+          setRepositoryId(decodedRepoUrl);
+        }
 
-    if (searchParams?.pdfUrl) {
-      const decodedPdfUrl = decodeURIComponent(searchParams.pdfUrl);
-      setFullReportUrl(decodedPdfUrl);
-      setReportUrl(shortenPdfUrl(decodedPdfUrl));
-    }
+        if (params?.pdfUrl) {
+          const decodedPdfUrl = decodeURIComponent(params.pdfUrl);
+          setFullReportUrl(decodedPdfUrl);
+          setReportUrl(shortenPdfUrl(decodedPdfUrl));
+        }
+      } catch (error) {
+        console.error("Error handling search params:", error);
+      }
+    };
+
+    handleSearchParams();
   }, [searchParams]);
 
   useEffect(() => {
