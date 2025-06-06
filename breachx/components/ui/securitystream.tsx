@@ -30,9 +30,12 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
   const [lastToken, setLastToken] = useState<string | null>(null);
   const [lastTimestamp, setLastTimestamp] = useState<number | null>(null);
   const [pollingDelay, setPollingDelay] = useState(5000);
+  const [isInitialFetch, setIsInitialFetch] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const scanIdRef = useRef<string | null>(null);
   const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const processedLogsRef = useRef<Set<string>>(new Set());
 
   const scrollToBottom = useCallback((): void => {
     if (autoScroll && logsEndRef.current) {
@@ -50,8 +53,10 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
     try {
       const queryParams = new URLSearchParams({
         scanId: scanIdRef.current,
-        ...(lastToken && { lastToken }),
-        ...(lastTimestamp && { lastTimestamp: lastTimestamp.toString() })
+        ...(lastToken && !isInitialFetch && { lastToken }),
+        ...(lastTimestamp && !isInitialFetch && { lastTimestamp: lastTimestamp.toString() }),
+        ...(isInitialFetch && { initial: 'true' }),
+        retryCount: retryCount.toString()
       });
 
       const response = await fetch(`/api/security-scan/logs?${queryParams}`);
@@ -59,14 +64,32 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
 
       if (response.ok) {
         if (data.status === 'success') {
-          // Update logs
+          // Reset retry count on successful response
+          setRetryCount(0);
+          
+          // Update logs with deduplication
           if (data.logs && data.logs.length > 0) {
-            setLogs(prev => [...prev, ...data.logs.map((log: { timestamp: string; message: string; level: LogEntry['level'] }) => ({
-              id: Date.now() + Math.random(),
-              timestamp: new Date(log.timestamp).toISOString(),
-              message: log.message,
-              level: log.level
-            }))]);
+            setLogs(prev => {
+              const newLogs = data.logs.filter((log: { timestamp: string; message: string; level: LogEntry['level'] }) => {
+                const logKey = `${log.timestamp}-${log.message}`;
+                if (processedLogsRef.current.has(logKey)) {
+                  return false;
+                }
+                processedLogsRef.current.add(logKey);
+                return true;
+              });
+
+              if (newLogs.length === 0) {
+                return prev;
+              }
+
+              return [...prev, ...newLogs.map((log: { timestamp: string; message: string; level: LogEntry['level'] }) => ({
+                id: Date.now() + Math.random(),
+                timestamp: new Date(log.timestamp).toISOString(),
+                message: log.message,
+                level: log.level
+              }))];
+            });
             
             // Update last timestamp if we have new logs
             const lastLog = data.logs[data.logs.length - 1];
@@ -81,6 +104,8 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
           
           // Update polling parameters
           setLastToken(data.nextToken || null);
+          setPollingDelay(data.nextPollDelay || 5000);
+          setIsInitialFetch(false);
 
           // If task is stopped, fetch report and stop polling
           if (data.taskStatus === 'STOPPED') {
@@ -99,6 +124,14 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
           pollingTimeoutRef.current = setTimeout(pollForLogs, data.nextPollDelay);
         }
       } else {
+        // Handle session not found error with retry
+        if (data.shouldRetry) {
+          const nextRetryDelay = data.nextRetryDelay || Math.min(1000 * Math.pow(2, retryCount), 10000);
+          setRetryCount(prev => prev + 1);
+          pollingTimeoutRef.current = setTimeout(pollForLogs, nextRetryDelay);
+          return;
+        }
+        
         throw new Error(data.error || 'Failed to fetch logs');
       }
     } catch (error) {
@@ -110,7 +143,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       setPollingDelay(nextDelay);
       pollingTimeoutRef.current = setTimeout(pollForLogs, nextDelay);
     }
-  }, [lastToken, lastTimestamp, pollingDelay]);
+  }, [lastToken, lastTimestamp, pollingDelay, isInitialFetch, retryCount]);
 
   const startScanning = async (): Promise<void> => {
     if (!deploymentUrl) {
@@ -125,6 +158,9 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
     setLastToken(null);
     setLastTimestamp(null);
     setPollingDelay(5000);
+    setIsInitialFetch(true);
+    setRetryCount(0);
+    processedLogsRef.current.clear();
 
     try {
       const response = await fetch('/api/security-scan', {

@@ -25,7 +25,6 @@ import {
   Loader2,
   ExternalLink,
   AlertTriangle,
-  ShieldAlert,
   Copy,
   Check,
 } from "lucide-react";
@@ -34,289 +33,141 @@ import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Image from "next/image";
-
-const shortenPdfUrl = (url: string): string => {
-  try {
-    const urlObj = new URL(url);
-    
-    // If it's a pre-signed URL (has AWS signature parameters), return the original URL
-    if (urlObj.search.includes('X-Amz-Signature') || 
-        urlObj.search.includes('X-Amz-Credential') || 
-        urlObj.search.includes('X-Amz-Algorithm')) {
-      return url;
-    }
-    
-    // Handle different S3 URL formats for non-pre-signed URLs
-    if (urlObj.hostname.includes('s3.amazonaws.com')) {
-      // Format: https://bucket-name.s3.amazonaws.com/path/to/file.pdf
-      const pathParts = urlObj.pathname.split('/').filter(part => part);
-      const fileName = pathParts[pathParts.length - 1];
-      const bucketName = urlObj.hostname.split('.')[0];
-      
-      return `https://${bucketName}.s3.amazonaws.com/${fileName}${urlObj.search}`;
-    } 
-    else if (urlObj.hostname.includes('amazonaws.com')) {
-      // Format: https://s3.region.amazonaws.com/bucket/path/to/file.pdf
-      const pathParts = urlObj.pathname.split('/').filter(part => part);
-      const fileName = pathParts[pathParts.length - 1];
-      const bucketName = pathParts[0];
-      
-      return `https://${bucketName}.s3.amazonaws.com/${fileName}${urlObj.search}`;
-    }
-    else {
-      // For other domains, just remove unnecessary path components
-      const pathParts = urlObj.pathname.split('/');
-      const fileName = pathParts[pathParts.length - 1];
-      
-      return `${urlObj.origin}/${fileName}${urlObj.search}`;
-    }
-  } catch (error) {
-    console.error('Error shortening URL:', error);
-    return url;
-  }
-};
-
+import * as anchor from "@coral-xyz/anchor";
+import { Anchor } from "@/lib/contract/types/anchor";
 
 interface PageProps {
-  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
+  searchParams: {
+    pdfUrl?: string;
+    repoUrl?: string;
+  };
 }
 
 export default function DemoPage({ searchParams }: PageProps) {
-  const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
-  const wallet = useAnchorWallet();
-
-  const [loading, setLoading] = useState(false);
-  const [programError, setProgramError] = useState<string | null>(null);
+  const { publicKey, connected } = useWallet();
+  const anchorWallet = useAnchorWallet();
+  const [program, setProgram] = useState<anchor.Program<Anchor> | null>(null);
+  const [userReports, setUserReports] = useState<ReportWithTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
   const [storingReport, setStoringReport] = useState(false);
   const [txSignature, setTxSignature] = useState<string | null>(null);
-  const [userReports, setUserReports] = useState<ReportWithTransaction[]>([]);
-  const [copySuccess, setCopySuccess] = useState<string | null>(null);
-  const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
-
-  const [repositoryId, setRepositoryId] = useState<string>("");
-
-  const [fullReportUrl, setFullReportUrl] = useState<string>("");
-  const [reportUrl, setReportUrl] = useState<string>("");
+  const [copied, setCopied] = useState(false);
+  const [reportUrl, setReportUrl] = useState<string>(searchParams.pdfUrl || '');
+  const [repositoryUrl, setRepositoryUrl] = useState<string>(searchParams.repoUrl || '');
 
   useEffect(() => {
-    async function loadUserReports() {
-      if (!publicKey || !connected) {
-        setUserReports([]);
-        setProgramError(null);
-        return;
-      }
-
-      setLoading(true);
-      setProgramError(null);
-
-      try {
-        const program = await getProgram(wallet, connection);
-
-        if (!program) {
-          setProgramError("Failed to initialize Anchor program");
-          return;
-        }
-
-        const reports = await getUserVulnerabilityReports(program, publicKey);
-        setUserReports(reports);
-      } catch (error) {
-        console.error("Error loading user reports:", error);
-        const errorMessage =
-          error instanceof Error ? error.message : "Unknown error occurred";
-        setProgramError(`Failed to load reports: ${errorMessage}`);
-      } finally {
-        setLoading(false);
-      }
+    if (searchParams.pdfUrl) {
+      setReportUrl(searchParams.pdfUrl);
     }
-
-    loadUserReports();
-  }, [publicKey, wallet, connection, txSignature, connected]);
-
-  useEffect(() => {
-    async function handleSearchParams() {
-      if (searchParams) {
-        const params = await searchParams;
-        
-        if (params?.repoUrl) {
-          setRepositoryId(decodeURIComponent(params.repoUrl as string));
-        }
-        
-        if (params?.pdfUrl) {
-          const decodedUrl = decodeURIComponent(params.pdfUrl as string);
-          setFullReportUrl(decodedUrl);
-          setReportUrl(shortenPdfUrl(decodedUrl));
-        }
-      }
+    if (searchParams.repoUrl) {
+      setRepositoryUrl(searchParams.repoUrl);
     }
-
-    handleSearchParams();
   }, [searchParams]);
 
+  useEffect(() => {
+    if (connected && anchorWallet) {
+      const init = async () => {
+        try {
+          const programInstance = await getProgram(anchorWallet, connection);
+          setProgram(programInstance);
+          await fetchUserReports(programInstance);
+        } catch (error) {
+          console.error("Error initializing program:", error);
+        }
+      };
+      init();
+    }
+  }, [connected, anchorWallet, connection]);
+
+  const fetchUserReports = async (programInstance: anchor.Program<Anchor>) => {
+    if (!publicKey) return;
+    try {
+      const reports = await getUserVulnerabilityReports(programInstance, publicKey);
+      setUserReports(reports);
+    } catch (error) {
+      console.error("Error fetching user reports:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleStoreReport = async () => {
-    if (!publicKey || !connected) {
-      alert("Please connect your wallet first");
-      return;
-    }
-
-    if (!repositoryId.trim()) {
-      alert("Repository URL is required");
-      return;
-    }
-
-    if (!fullReportUrl.trim()) {
-      alert("PDF Report URL is required");
-      return;
-    }
+    if (!program || !publicKey || !reportUrl || !repositoryUrl) return;
 
     setStoringReport(true);
-    setProgramError(null);
-
     try {
-      const program = await getProgram(wallet, connection);
-
-      if (!program) {
-        throw new Error("Failed to initialize Anchor program");
-      }
-
       const { tx } = await storeVulnerabilityReport(
         program,
-        repositoryId,
+        repositoryUrl,
         reportUrl
       );
       setTxSignature(tx);
-
-      setRepositoryId("");
-      setFullReportUrl("");
-      setReportUrl("");
-
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const reports = await getUserVulnerabilityReports(program, publicKey);
-      setUserReports(reports);
-
-      alert("Report stored successfully on Solana");
+      await fetchUserReports(program);
     } catch (error) {
       console.error("Error storing report:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error occurred";
-      setProgramError(`Failed to store report: ${errorMessage}`);
-      alert("Failed to store report. Please try again.");
     } finally {
       setStoringReport(false);
     }
   };
 
-  const copyToClipboard = (text: string, type: string) => {
-    navigator.clipboard.writeText(text).then(
-      () => {
-        setCopiedTxId(text);
-        setCopySuccess(`${type} copied!`);
-
-        setTimeout(() => {
-          setCopySuccess(null);
-          setCopiedTxId(null);
-        }, 2000);
-      },
-      () => {
-        setCopySuccess("Failed to copy");
-        setTimeout(() => setCopySuccess(null), 2000);
-      }
-    );
+  const copyToClipboard = async () => {
+    if (txSignature) {
+      await navigator.clipboard.writeText(txSignature);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
-  console.log(reportUrl, "short", fullReportUrl)
   return (
-    <div className="min-h-screen py-24">
-      <div className="container mx-auto px-4 max-w-6xl">
-        <div className="flex flex-col items-center justify-center mb-12">
-          <ShieldAlert className="h-16 w-16 text-purple-500 mb-6" />
-          <h1 className="text-4xl md:text-5xl font-bold text-center bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500">
-            Zero-Day Vulnerability Reports
-          </h1>
-          <p className="mt-4 text-gray-400 text-center max-w-2xl">
-            Store your vulnerability reports securely on the Solana blockchain.
-            Each report is tied to a specific repository ID, allowing you to
-            maintain multiple security findings per wallet.
-          </p>
+    <div className="min-h-screen bg-black text-white p-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold">Security Reports</h1>
+          <Link href="/dashboard">
+            <Button variant="outline" className="text-white">
+              Back to Dashboard
+            </Button>
+          </Link>
         </div>
 
-        {programError && (
-          <div className="mb-8 p-4 bg-red-900/20 border border-red-800 rounded-lg">
-            <div className="flex items-start">
-              <AlertTriangle className="h-5 w-5 text-red-500 mr-2 mt-0.5" />
-              <div>
-                <h3 className="text-red-400 font-medium">Error</h3>
-                <p className="text-red-300 text-sm">{programError}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {copySuccess && (
-          <div className="fixed bottom-4 right-4 bg-green-900/90 text-green-100 px-4 py-2 rounded-md shadow-lg animate-fade-in-out">
-            {copySuccess}
-          </div>
-        )}
-
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid gap-8">
           <Card className="bg-gray-900/60 border border-gray-800 shadow-xl">
             <CardHeader>
               <CardTitle className="text-2xl text-white">
                 Store New Report
               </CardTitle>
               <CardDescription>
-                Add a new vulnerability report to the Solana blockchain
+                Store your security report on the Solana blockchain
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {!connected ? (
-                <div className="flex flex-col items-center justify-center p-8">
-                  <AlertTriangle className="h-12 w-12 text-yellow-500 mb-4" />
-                  <p className="text-center text-gray-400 mb-4">
-                    Please connect your wallet to store a vulnerability report
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-white" htmlFor="repositoryId">
-                      Repository URL
-                    </Label>
-                    <Input
-                      id="repositoryId"
-                      placeholder="e.g., https://github.com/user/repo"
-                      value={repositoryId}
-                      readOnly
-                      className="bg-gray-950/50 border-gray-800 text-white cursor-not-allowed"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-white" htmlFor="reportUrl">
-                      PDF Report URL
-                    </Label>
-                    <Input
-                      id="reportUrl"
-                      placeholder="https://example.com/vulnerability-report.pdf"
-                      value={reportUrl}
-                      readOnly
-                      className="bg-gray-950/50 border-gray-800 text-white cursor-not-allowed"
-                    />
-                  </div>
-
-                  <div className="bg-gray-950/60 rounded-lg p-4 border border-gray-800/60">
-                    <p className="text-sm text-gray-400">
-                      <span className="text-yellow-500">Note:</span> The PDF report URL has been simplified for display. The full URL will be stored on the blockchain.
-                    </p>
-                  </div>
-                </div>
-              )}
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="reportUrl">Report URL</Label>
+                <Input
+                  id="reportUrl"
+                  value={reportUrl}
+                  onChange={(e) => setReportUrl(e.target.value)}
+                  placeholder="Enter the URL of your security report"
+                  className="bg-gray-800 border-gray-700 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="repositoryUrl">Repository URL</Label>
+                <Input
+                  id="repositoryUrl"
+                  value={repositoryUrl}
+                  onChange={(e) => setRepositoryUrl(e.target.value)}
+                  placeholder="Enter the URL of your repository"
+                  className="bg-gray-800 border-gray-700 text-white"
+                />
+              </div>
             </CardContent>
+
             <CardFooter>
               <Button
                 onClick={handleStoreReport}
-                disabled={!connected || storingReport}
+                disabled={!connected || storingReport || !reportUrl || !repositoryUrl}
                 className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-md"
               >
                 {storingReport ? (
@@ -382,62 +233,18 @@ export default function DemoPage({ searchParams }: PageProps) {
                         <ExternalLink className="ml-2 h-4 w-4" />
                       </a>
 
-                      <div className="mt-4 space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-400">Submitted by:</span>
-                          <span className="text-gray-300 font-mono">
-                            {truncateAddress(
-                              reportItem.report.reporter.toString()
-                            )}
-                          </span>
-                        </div>
-
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-400">Timestamp:</span>
-                          <span className="text-gray-300">
-                            {formatDate(
-                              new Date(
-                                reportItem.report.timestamp.toNumber() * 1000
-                              )
-                            )}
-                          </span>
-                        </div>
-
-                        {reportItem.transactionId && (
-                          <div className="flex justify-between text-sm items-center">
-                            <span className="text-gray-400">
-                              Transaction ID:
-                            </span>
-                            <div className="flex items-center">
-                              <Link
-                                href={getSolanaExplorerUrl(
-                                  reportItem.transactionId
-                                )}
-                                target="_blank"
-                                className="text-blue-400 hover:text-blue-300 font-mono text-xs truncate max-w-32 sm:max-w-48 md:max-w-32 lg:max-w-48"
-                              >
-                                {truncateAddress(reportItem.transactionId)}
-                                <ExternalLink className="inline ml-1 h-3 w-3" />
-                              </Link>
-                              <button
-                                onClick={() =>
-                                  copyToClipboard(
-                                    reportItem.transactionId!,
-                                    "Transaction ID"
-                                  )
-                                }
-                                className="ml-2 text-gray-400 hover:text-white transition-colors"
-                                title="Copy Transaction ID"
-                              >
-                                {copiedTxId === reportItem.transactionId ? (
-                                  <Check className="h-3 w-3 text-green-400" />
-                                ) : (
-                                  <Copy className="h-3 w-3" />
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                      <div className="mt-4 flex items-center justify-between text-sm text-gray-400">
+                        <span>
+                          Stored on {formatDate(new Date(reportItem.report.timestamp.toNumber() * 1000))}
+                        </span>
+                        <a
+                          href={getSolanaExplorerUrl(reportItem.transactionId || '')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-purple-400 hover:text-purple-300"
+                        >
+                          View Transaction
+                        </a>
                       </div>
                     </div>
                   ))}
@@ -466,50 +273,33 @@ export default function DemoPage({ searchParams }: PageProps) {
               Recent Transaction
             </h2>
             <Card className="bg-gray-900/60 border border-gray-800 shadow-xl overflow-hidden">
-              <div className="p-4 bg-gradient-to-r from-purple-900/20 to-blue-900/20 border-b border-gray-800">
+              <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <div className="h-2 w-2 rounded-full bg-green-500"></div>
-                    <span className="text-sm font-medium text-white">
-                      Transaction Confirmed
+                    <span className="text-gray-400">
+                      {truncateAddress(txSignature)}
                     </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Link
-                      href={getSolanaExplorerUrl(txSignature)}
-                      target="_blank"
-                      className="flex items-center text-sm text-blue-400 hover:text-blue-300"
-                    >
-                      <ExternalLink className="h-3 w-3 mr-1" />
-                      View on Explorer
-                    </Link>
                     <button
-                      onClick={() =>
-                        copyToClipboard(txSignature, "Transaction ID")
-                      }
-                      className="flex items-center text-sm text-gray-400 hover:text-white transition-colors"
-                      title="Copy Transaction ID"
+                      onClick={copyToClipboard}
+                      className="text-gray-400 hover:text-white transition-colors"
                     >
-                      {copiedTxId === txSignature ? (
-                        <>
-                          <Check className="h-3 w-3 mr-1 text-green-400" />
-                          Copied!
-                        </>
+                      {copied ? (
+                        <Check className="h-4 w-4" />
                       ) : (
-                        <>
-                          <Copy className="h-3 w-3 mr-1" />
-                          Copy
-                        </>
+                        <Copy className="h-4 w-4" />
                       )}
                     </button>
                   </div>
+                  <a
+                    href={getSolanaExplorerUrl(txSignature)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-purple-400 hover:text-purple-300"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
                 </div>
-              </div>
-              <div className="p-4">
-                <div className="font-mono text-xs text-gray-400 break-all">
-                  {txSignature}
-                </div>
-              </div>
+              </CardContent>
             </Card>
           </div>
         )}

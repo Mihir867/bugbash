@@ -5,6 +5,16 @@ import { CloudWatchLogsClient, GetLogEventsCommand, DescribeLogStreamsCommand } 
 import { ECSClient, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { NextRequest } from 'next/server';
 import { scanSessions } from '@/lib/scanSessions';
+import prisma from '@/lib/db';
+
+// Define proper types
+type TaskStatus = 'RUNNING' | 'STOPPED' | 'FAILED';
+
+interface ScanSession {
+  taskArn: string;
+  startTime: string;
+  status: TaskStatus;
+}
 
 const ecsClient = new ECSClient({
   region: 'us-east-1',
@@ -27,14 +37,17 @@ const logsClient = new CloudWatchLogsClient({
 });
 
 // Constants for polling
-const MAX_LOGS_PER_REQUEST = 100;
+const MAX_LOGS_PER_REQUEST = 1000;
 const POLL_TIMEOUT = 50000; // 50 seconds (leaving 10s buffer for Vercel)
+const MAX_RETRY_ATTEMPTS = 3;
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const scanId = searchParams.get('scanId');
   const lastToken = searchParams.get('lastToken');
   const lastTimestamp = searchParams.get('lastTimestamp');
+  const isInitialRequest = searchParams.get('initial') === 'true';
+  const retryCount = parseInt(searchParams.get('retryCount') || '0');
 
   if (!scanId) {
     return new Response(
@@ -43,13 +56,46 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const scanSession = scanSessions.get(scanId);
+  let scanSession = scanSessions.get(scanId);
+  
+  // If session not found in memory, try to recover from database
+  if (!scanSession && retryCount < MAX_RETRY_ATTEMPTS) {
+    try {
+      const dbScan = await prisma.repositoryConfig.findUnique({
+        where: { id: scanId },
+        select: {
+          id: true,
+          taskArn: true,
+          securityStatus: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      if (dbScan) {
+        // Reconstruct session from database
+        const reconstructedSession: ScanSession = {
+          taskArn: dbScan.taskArn || '',
+          status: (dbScan.securityStatus as TaskStatus) || 'RUNNING',
+          startTime: dbScan.createdAt.toISOString()
+        };
+        // Restore session in memory
+        scanSessions.set(scanId, reconstructedSession);
+        scanSession = reconstructedSession;
+      }
+    } catch (error) {
+      console.error('Error recovering scan session from database:', error);
+    }
+  }
+
   if (!scanSession) {
     return new Response(
       JSON.stringify({ 
         error: 'Scan session not found',
         scanId: scanId,
-        availableSessions: Array.from(scanSessions.keys())
+        retryCount,
+        nextRetryDelay: Math.min(1000 * Math.pow(2, retryCount), 10000),
+        shouldRetry: retryCount < MAX_RETRY_ATTEMPTS
       }),
       { status: 404 }
     );
@@ -57,7 +103,29 @@ export async function GET(request: NextRequest) {
 
   try {
     // Get task status
-    const taskStatus = await getTaskStatus(scanSession.taskArn);
+    const taskStatus = await getTaskStatus(scanSession.taskArn) as TaskStatus;
+    
+    // Update session status if task status has changed
+    if (taskStatus !== scanSession.status) {
+      const updatedSession: ScanSession = {
+        ...scanSession,
+        status: taskStatus
+      };
+      scanSessions.set(scanId, updatedSession);
+      
+      // Update database
+      try {
+        await prisma.repositoryConfig.update({
+          where: { id: scanId },
+          data: { 
+            securityStatus: taskStatus,
+            updatedAt: new Date()
+          }
+        });
+      } catch (error) {
+        console.error('Error updating scan status in database:', error);
+      }
+    }
     
     // Get log stream name
     const logStreamName = getLogStreamName(scanSession.taskArn);
@@ -70,39 +138,50 @@ export async function GET(request: NextRequest) {
           status: 'waiting',
           message: 'Log stream not yet available',
           taskStatus,
-          nextPollDelay: 5000 // Poll again in 5 seconds
+          nextPollDelay: 5000
         })
       );
     }
 
-    // Get logs
+    // Get logs with proper pagination
     const params = {
       logGroupName: '/ecs/security-scanner',
       logStreamName: logStreamName,
       limit: MAX_LOGS_PER_REQUEST,
-      startFromHead: !lastToken,
-      ...(lastToken && { nextToken: lastToken }),
-      ...(lastTimestamp && { startTime: parseInt(lastTimestamp) })
+      startFromHead: isInitialRequest,
+      ...(lastToken && !isInitialRequest && { nextToken: lastToken }),
+      ...(lastTimestamp && !isInitialRequest && { startTime: parseInt(lastTimestamp) })
     };
 
     const command = new GetLogEventsCommand(params);
     const response = await logsClient.send(command);
 
-    const logs = response.events?.map(event => ({
-      message: event.message,
-      timestamp: event.timestamp || Date.now(),
-      level: detectLogLevel(event.message),
-      type: 'log'
-    })) || [];
+    // Process and deduplicate logs
+    const processedLogs = new Map<string, any>();
+    response.events?.forEach(event => {
+      if (event.message && event.timestamp) {
+        const logKey = `${event.timestamp}-${event.message}`;
+        if (!processedLogs.has(logKey)) {
+          processedLogs.set(logKey, {
+            message: event.message,
+            timestamp: event.timestamp,
+            level: detectLogLevel(event.message),
+            type: 'log'
+          });
+        }
+      }
+    });
+
+    const logs = Array.from(processedLogs.values());
 
     // Determine next poll delay based on task status and log availability
-    let nextPollDelay = 5000; // Default 5 seconds
+    let nextPollDelay = 5000;
     if (taskStatus === 'STOPPED') {
-      nextPollDelay = 0; // No need to poll further
-    } else if (taskStatus === 'STOPPING') {
-      nextPollDelay = 2000; // Poll more frequently when stopping
+      nextPollDelay = 0;
+    } else if (taskStatus === 'FAILED') {
+      nextPollDelay = 0;
     } else if (logs.length === 0) {
-      nextPollDelay = 10000; // Poll less frequently if no new logs
+      nextPollDelay = 10000;
     }
 
     return new Response(
@@ -119,19 +198,20 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error fetching logs:', error);
     
-    // Determine retry delay based on error type
     let nextPollDelay = 5000;
     if (error.name === 'ResourceNotFoundException') {
-      nextPollDelay = 10000; // Wait longer if resource not found
+      nextPollDelay = 10000;
     } else if (error.name === 'ThrottlingException') {
-      nextPollDelay = 15000; // Wait even longer if throttled
+      nextPollDelay = 15000;
     }
 
     return new Response(
       JSON.stringify({
         status: 'error',
         error: error.message,
-        nextPollDelay
+        nextPollDelay,
+        retryCount,
+        shouldRetry: retryCount < MAX_RETRY_ATTEMPTS
       }),
       { status: 500 }
     );
