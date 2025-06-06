@@ -6,50 +6,33 @@ interface LogEntry {
   id: number;
   timestamp: string;
   message: string;
-  level: 'error' | 'warning' | 'success' | 'info';
+  level: 'info' | 'warning' | 'error' | 'success';
 }
 
 interface SecurityLogStreamProps {
-  deploymentUrl?: string;
+  deploymentUrl: string;
+  githubUrl: string;
   maxHeight?: string;
   autoScroll?: boolean;
-  githubUrl?: string;
-  maxReconnectAttempts?: number;
-}
-
-interface LogData {
-  message: string;
-  level?: 'error' | 'warning' | 'success' | 'info';
-  type?: string;
-  timestamp?: number;
-}
-
-interface CompleteEventData {
-  message: string;
-  summary: string;
-  timestamp: number;
-  type: string;
 }
 
 const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({ 
   deploymentUrl,
   githubUrl,
   maxHeight = "500px", 
-  autoScroll = true,
-  maxReconnectAttempts = 30 // Increased default max reconnect attempts
+  autoScroll = true
 }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [pdfReportUrl, setPdfReportUrl] = useState<string | null>(null);
-  const [reconnectAttempt, setReconnectAttempt] = useState(0);
-  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now());
+  const [lastToken, setLastToken] = useState<string | null>(null);
+  const [lastTimestamp, setLastTimestamp] = useState<number | null>(null);
+  const [pollingDelay, setPollingDelay] = useState(5000);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const scanIdRef = useRef<string | null>(null);
-  const connectionStartTimeRef = useRef<number>(Date.now());
+  const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const scrollToBottom = useCallback((): void => {
     if (autoScroll && logsEndRef.current) {
@@ -61,125 +44,73 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
     scrollToBottom();
   }, [logs, autoScroll]);
 
-  const handleReconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
+  const pollForLogs = useCallback(async () => {
+    if (!scanIdRef.current) return;
 
-    if (reconnectAttempt < maxReconnectAttempts && scanIdRef.current) {
-      const nextAttempt = reconnectAttempt + 1;
-      // Use exponential backoff with jitter
-      const baseDelay = Math.min(1000 * Math.pow(2, nextAttempt), 30000);
-      const jitter = Math.random() * 1000;
-      const delay = baseDelay + jitter;
-      
-      setLogs(prev => [...prev, {
-        id: Date.now() + Math.random(),
-        timestamp: new Date().toISOString(),
-        message: `Reconnecting in ${Math.round(delay/1000)} seconds... (Attempt ${nextAttempt}/${maxReconnectAttempts})`,
-        level: 'info'
-      }]);
-      
-      setReconnectAttempt(nextAttempt);
-      reconnectTimeoutRef.current = setTimeout(() => {
-        if (scanIdRef.current) {
-          connectToEventSource(scanIdRef.current);
-        }
-      }, delay);
-    } else {
-      setError(`Failed to connect after ${maxReconnectAttempts} attempts. Please try starting a new scan.`);
-    }
-  }, [reconnectAttempt, maxReconnectAttempts]);
-
-  const connectToEventSource = useCallback((scanId: string) => {
     try {
-      // Close existing connection if any
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-
-      const eventSource = new EventSource(`/api/security-scan/logs?scanId=${scanId}`);
-      eventSourceRef.current = eventSource;
-
-      eventSource.onopen = (): void => {
-        console.log('✅ EventSource connection opened successfully');
-        setIsConnected(true);
-        setIsLoading(false);
-        setError(null);
-        setReconnectAttempt(0);
-        setLastActivityTime(Date.now());
-        connectionStartTimeRef.current = Date.now();
-      };
-
-      eventSource.onmessage = (event: MessageEvent): void => {
-        try {
-          const logData: LogData = JSON.parse(event.data);
-          setLastActivityTime(Date.now());
-          
-          // Handle different types of messages
-          if (logData.type === 'heartbeat' || logData.type === 'keep-alive') {
-            // Don't add heartbeat/keep-alive messages to logs
-            return;
-          }
-          
-          setLogs(prev => [...prev, {
-            id: Date.now() + Math.random(),
-            timestamp: new Date(logData.timestamp || Date.now()).toISOString(),
-            message: logData.message,
-            level: logData.level || 'info'
-          }]);
-          scrollToBottom();
-        } catch (error) {
-          console.error('Error parsing log message:', error);
-        }
-      };
-
-      eventSource.onerror = (error: Event): void => {
-        console.error('❌ SSE error:', error);
-        setError('Connection to log stream failed');
-        setIsConnected(false);
-        setIsLoading(false);
-        eventSource.close();
-        
-        // Check if we should attempt to reconnect
-        const timeSinceLastActivity = Date.now() - lastActivityTime;
-        const totalConnectionTime = Date.now() - connectionStartTimeRef.current;
-        
-        // Only attempt reconnect if within reasonable timeframes
-        if (timeSinceLastActivity < 480000 && totalConnectionTime < 480000) { // 8 minutes
-          handleReconnect();
-        } else {
-          setError('Connection timeout. Please start a new scan.');
-        }
-      };
-
-      eventSource.addEventListener('complete', async (event: MessageEvent): Promise<void> => {
-        try {
-          const data: CompleteEventData = JSON.parse(event.data);
-          setLastActivityTime(Date.now());
-          
-          setLogs(prev => [...prev, {
-            id: Date.now() + Math.random(),
-            timestamp: new Date(data.timestamp).toISOString(),
-            message: `Scan completed: ${data.summary}`,
-            level: 'success'
-          }]);
-          setIsConnected(false);
-          eventSource.close();
-          
-          // Fetch latest report when scan completes
-          await fetchLatestReport();
-        } catch (error) {
-          console.error('Error handling complete event:', error);
-        }
+      const queryParams = new URLSearchParams({
+        scanId: scanIdRef.current,
+        ...(lastToken && { lastToken }),
+        ...(lastTimestamp && { lastTimestamp: lastTimestamp.toString() })
       });
 
+      const response = await fetch(`/api/security-scan/logs?${queryParams}`);
+      const data = await response.json();
+
+      if (response.ok) {
+        if (data.status === 'success') {
+          // Update logs
+          if (data.logs && data.logs.length > 0) {
+            setLogs(prev => [...prev, ...data.logs.map((log: { timestamp: string; message: string; level: LogEntry['level'] }) => ({
+              id: Date.now() + Math.random(),
+              timestamp: new Date(log.timestamp).toISOString(),
+              message: log.message,
+              level: log.level
+            }))]);
+            
+            // Update last timestamp if we have new logs
+            const lastLog = data.logs[data.logs.length - 1];
+            if (lastLog.timestamp) {
+              setLastTimestamp(lastLog.timestamp);
+            }
+          }
+
+          // Update connection state
+          setIsConnected(true);
+          setError(null);
+          
+          // Update polling parameters
+          setLastToken(data.nextToken || null);
+
+          // If task is stopped, fetch report and stop polling
+          if (data.taskStatus === 'STOPPED') {
+            await fetchLatestReport();
+            setIsConnected(false);
+            return;
+          }
+
+          // Schedule next poll
+          if (data.nextPollDelay > 0) {
+            pollingTimeoutRef.current = setTimeout(pollForLogs, data.nextPollDelay);
+          }
+        } else if (data.status === 'waiting') {
+          // Task is still initializing
+          setError(null);
+          pollingTimeoutRef.current = setTimeout(pollForLogs, data.nextPollDelay);
+        }
+      } else {
+        throw new Error(data.error || 'Failed to fetch logs');
+      }
     } catch (error) {
-      console.error('Error connecting to event source:', error);
-      setError(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
-      handleReconnect();
+      console.error('Error polling logs:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch logs');
+      
+      // Implement exponential backoff for errors
+      const nextDelay = Math.min(pollingDelay * 1.5, 30000);
+      setPollingDelay(nextDelay);
+      pollingTimeoutRef.current = setTimeout(pollForLogs, nextDelay);
     }
-  }, [handleReconnect, scrollToBottom, lastActivityTime]);
+  }, [lastToken, lastTimestamp, pollingDelay]);
 
   const startScanning = async (): Promise<void> => {
     if (!deploymentUrl) {
@@ -191,7 +122,9 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
     setError(null);
     setLogs([]);
     setPdfReportUrl(null);
-    setReconnectAttempt(0);
+    setLastToken(null);
+    setLastTimestamp(null);
+    setPollingDelay(5000);
 
     try {
       const response = await fetch('/api/security-scan', {
@@ -209,14 +142,16 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       const { scanId } = await response.json();
       scanIdRef.current = scanId;
       
-      // Connect to SSE endpoint
-      connectToEventSource(scanId);
+      // Start polling
+      setIsConnected(true);
+      pollForLogs();
 
     } catch (err) {
       console.error('Error starting scan:', err);
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
       setError(errorMessage);
       setIsLoading(false);
+      setIsConnected(false);
     }
   };
 
@@ -253,13 +188,10 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
   };
 
   const stopScanning = (): void => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      setIsConnected(false);
+    if (pollingTimeoutRef.current) {
+      clearTimeout(pollingTimeoutRef.current);
     }
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
+    setIsConnected(false);
   };
 
   const clearLogs = (): void => {
@@ -280,11 +212,8 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
       }
     };
   }, []);
