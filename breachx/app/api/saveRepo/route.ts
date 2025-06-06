@@ -1,14 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
  
-
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
 import { NextResponse } from 'next/server';
-
 import { Octokit } from "@octokit/rest";
 
-const octokit = new Octokit();
+// Create a single authenticated Octokit instance
+const octokit = new Octokit({
+  auth: process.env.GITHUB_PAT
+});
 
 async function fetchAllRepos(username: string) {
   const repos = [];
@@ -30,23 +31,23 @@ async function fetchAllRepos(username: string) {
 
   return repos;
 }
+
 export async function GET() {
-    const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
   
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-  
-    try {
-      const repositories = await fetchAllRepos(session.user?.githubUsername);
-  
-      return NextResponse.json(repositories);
-    } catch (error) {
-      console.error('Error fetching repositories:', error);
-      return NextResponse.json({ error: 'Failed to fetch repositories' }, { status: 500 });
-    }
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   
+  try {
+    const repositories = await fetchAllRepos(session.user?.githubUsername);
+    return NextResponse.json(repositories);
+  } catch (error) {
+    console.error('Error fetching repositories:', error);
+    return NextResponse.json({ error: 'Failed to fetch repositories' }, { status: 500 });
+  }
+}
+
 export async function POST(request:any) {
   const session = await getServerSession(authOptions);
   
