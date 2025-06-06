@@ -265,13 +265,24 @@ export async function GET(request: NextRequest) {
               if (response.nextForwardToken && response.nextForwardToken !== lastForwardToken) {
                 lastForwardToken = response.nextForwardToken;
               }
+            } else {
+              // Send a heartbeat message to keep the connection alive
+              const heartbeatMessage = `data: ${JSON.stringify({ 
+                message: 'Waiting for new logs...',
+                level: 'info',
+                timestamp: Date.now(),
+                type: 'heartbeat'
+              })}\n\n`;
+              controller.enqueue(new TextEncoder().encode(heartbeatMessage));
             }
           }
 
           // Continue polling based on task status
           if (taskStatus === 'RUNNING') {
+            // Keep polling every 2 seconds while running
             setTimeout(() => pollForNewLogs(), 2000);
           } else if (taskStatus === 'STOPPING') {
+            // Poll more frequently while stopping
             setTimeout(() => pollForNewLogs(), 1000);
           } else if (taskStatus === 'STOPPED') {
             // Do one final poll and then close
@@ -289,16 +300,15 @@ export async function GET(request: NextRequest) {
               });
             }, 1000);
           } else {
-            // Task ended - close stream
-            const completeMessage = `event: complete\ndata: ${JSON.stringify({ 
-              message: `Task ended with status: ${taskStatus}`,
-              summary: `Task ended with status: ${taskStatus}`,
+            // For any other status, keep polling but log the status
+            const statusMessage = `data: ${JSON.stringify({ 
+              message: `Task status: ${taskStatus}`,
+              level: 'info',
               timestamp: Date.now(),
-              type: 'complete'
+              type: 'status'
             })}\n\n`;
-            controller.enqueue(new TextEncoder().encode(completeMessage));
-            controller.close();
-            streamingActive = false;
+            controller.enqueue(new TextEncoder().encode(statusMessage));
+            setTimeout(() => pollForNewLogs(), 2000);
           }
 
         } catch (error: any) {
@@ -308,6 +318,7 @@ export async function GET(request: NextRequest) {
             // Log stream might not exist yet, retry
             setTimeout(() => pollForNewLogs(), 3000);
           } else {
+            // For other errors, log them but keep the connection alive
             const errorMessage = `data: ${JSON.stringify({ 
               message: `Error polling logs: ${error.message}`,
               level: 'error',
@@ -315,8 +326,15 @@ export async function GET(request: NextRequest) {
               type: 'error'
             })}\n\n`;
             controller.enqueue(new TextEncoder().encode(errorMessage));
-            controller.close();
-            streamingActive = false;
+            
+            // Only close the connection if it's a critical error
+            if (error.name === 'AccessDeniedException' || error.name === 'InvalidParameterException') {
+              controller.close();
+              streamingActive = false;
+            } else {
+              // For other errors, keep polling
+              setTimeout(() => pollForNewLogs(), 3000);
+            }
           }
         }
       };
