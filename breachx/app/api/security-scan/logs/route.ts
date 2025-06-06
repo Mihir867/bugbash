@@ -26,9 +26,11 @@ const logsClient = new CloudWatchLogsClient({
 });
 
 // Constants for connection management
-const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const MAX_RECONNECT_ATTEMPTS = 10;
-const RECONNECT_DELAY = 5000; // 5 seconds
+const HEARTBEAT_INTERVAL = 15000; // Reduced to 15 seconds for more frequent heartbeats
+const MAX_RECONNECT_ATTEMPTS = 20; // Increased max attempts
+const RECONNECT_DELAY = 2000; // Reduced to 2 seconds
+const CONNECTION_TIMEOUT = 30000; // 30 seconds timeout for initial connection
+const MAX_RETRY_DELAY = 10000; // Maximum delay between retries
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -108,11 +110,12 @@ export async function GET(request: NextRequest) {
         }
 
         if (retryCount < MAX_RECONNECT_ATTEMPTS) {
-          const delay = RECONNECT_DELAY * Math.pow(2, retryCount);
+          // Use exponential backoff with a maximum delay
+          const delay = Math.min(RECONNECT_DELAY * Math.pow(1.5, retryCount), MAX_RETRY_DELAY);
           retryCount++;
 
           const reconnectMessage = `data: ${JSON.stringify({ 
-            message: `Connection lost. Reconnecting in ${delay/1000} seconds... (Attempt ${retryCount}/${MAX_RECONNECT_ATTEMPTS})`,
+            message: `Connection lost. Reconnecting in ${Math.round(delay/1000)} seconds... (Attempt ${retryCount}/${MAX_RECONNECT_ATTEMPTS})`,
             level: 'warning',
             timestamp: Date.now(),
             type: 'reconnect'
@@ -350,6 +353,9 @@ export async function GET(request: NextRequest) {
               if (response.nextForwardToken && response.nextForwardToken !== lastForwardToken) {
                 lastForwardToken = response.nextForwardToken;
               }
+            } else {
+              // If no new logs, send a heartbeat to keep the connection alive
+              sendHeartbeat();
             }
           }
 
@@ -389,8 +395,9 @@ export async function GET(request: NextRequest) {
           console.error('Error polling for new logs:', error);
           
           if (error.name === 'ResourceNotFoundException') {
-            // Log stream might not exist yet, retry
-            setTimeout(() => pollForNewLogs(), 3000);
+            // Log stream might not exist yet, retry with exponential backoff
+            const delay = Math.min(RECONNECT_DELAY * Math.pow(1.5, retryCount), MAX_RETRY_DELAY);
+            setTimeout(() => pollForNewLogs(), delay);
           } else {
             // For other errors, log them but keep the connection alive
             const errorMessage = `data: ${JSON.stringify({ 
@@ -406,8 +413,9 @@ export async function GET(request: NextRequest) {
               controller.close();
               streamingActive = false;
             } else {
-              // For other errors, keep polling
-              setTimeout(() => pollForNewLogs(), 3000);
+              // For other errors, keep polling with exponential backoff
+              const delay = Math.min(RECONNECT_DELAY * Math.pow(1.5, retryCount), MAX_RETRY_DELAY);
+              setTimeout(() => pollForNewLogs(), delay);
             }
           }
         }
