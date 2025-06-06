@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -27,6 +29,10 @@ import {
   AlertTriangle,
   Copy,
   Check,
+  X,
+  Sparkles,
+  Zap,
+  Rocket,
 } from "lucide-react";
 import { formatDate, getSolanaExplorerUrl, truncateAddress } from "@/lib/utils";
 import Link from "next/link";
@@ -35,6 +41,327 @@ import { Label } from "@/components/ui/label";
 import Image from "next/image";
 import * as anchor from "@coral-xyz/anchor";
 import { Anchor } from "@/lib/contract/types/anchor";
+
+const shortenPdfUrl = (url: string): string => {
+  try {
+    const urlObj = new URL(url);
+
+    // If it's a pre-signed URL (has AWS signature parameters), return the original URL
+    if (
+      urlObj.search.includes("X-Amz-Signature") ||
+      urlObj.search.includes("X-Amz-Credential") ||
+      urlObj.search.includes("X-Amz-Algorithm")
+    ) {
+      return url;
+    }
+
+    // Handle different S3 URL formats for non-pre-signed URLs
+    if (urlObj.hostname.includes("s3.amazonaws.com")) {
+      // Format: https://bucket-name.s3.amazonaws.com/path/to/file.pdf
+      const pathParts = urlObj.pathname.split("/").filter((part) => part);
+      const fileName = pathParts[pathParts.length - 1];
+      const bucketName = urlObj.hostname.split(".")[0];
+
+      return `https://${bucketName}.s3.amazonaws.com/${fileName}${urlObj.search}`;
+    } else if (urlObj.hostname.includes("amazonaws.com")) {
+      // Format: https://s3.region.amazonaws.com/bucket/path/to/file.pdf
+      const pathParts = urlObj.pathname.split("/").filter((part) => part);
+      const fileName = pathParts[pathParts.length - 1];
+      const bucketName = pathParts[0];
+
+      return `https://${bucketName}.s3.amazonaws.com/${fileName}${urlObj.search}`;
+    } else {
+      // For other domains, just remove unnecessary path components
+      const pathParts = urlObj.pathname.split("/");
+      const fileName = pathParts[pathParts.length - 1];
+
+      return `${urlObj.origin}/${fileName}${urlObj.search}`;
+    }
+  } catch (error) {
+    console.error("Error shortening URL:", error);
+    return url;
+  }
+};
+
+const EnhancedPinContainer = ({
+  title,
+  href,
+  children,
+}: {
+  title: string;
+  href: string;
+  children: React.ReactNode;
+}) => {
+  return (
+    <div className="relative group/pin">
+      <div
+        className="absolute inset-0 bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 rounded-2xl blur-xl opacity-30 group-hover/pin:opacity-50 transition-all duration-700 animate-pulse"
+        // style={{
+        //   animation:
+        //     "float 6s ease-in-out infinite, pulse 2s ease-in-out infinite alternate",
+        // }}
+      />
+      <div className="relative z-10 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-1 hover:border-white/20 transition-all duration-300 group-hover/pin:scale-105">
+        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-xl p-6 backdrop-blur-sm">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SuccessModal = ({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) => {
+  const [activeBadge, setActiveBadge] = useState(0);
+  const [particles, setParticles] = useState<
+    Array<{ id: number; x: number; y: number; delay: number }>
+  >([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      const newParticles = Array.from({ length: 15 }, (_, i) => ({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        delay: Math.random() * 2,
+      }));
+      setParticles(newParticles);
+    }
+  }, [isOpen]);
+
+  const badges = [
+    {
+      title: "Report Stored Successfully",
+      subtitle: "✅ Blockchain Verified",
+      description:
+        "Your vulnerability report has been securely stored on the Solana blockchain with immutable proof of submission.",
+      icon: "🛡️",
+      gradient: "from-emerald-400 via-green-500 to-teal-600",
+      href: "#report-success",
+      bgColor: "from-emerald-500/20 to-green-500/20",
+    },
+    {
+      title: "NFT Generation",
+      subtitle: "🚀 Coming Soon",
+      description:
+        "Transform your vulnerability reports into unique, tradeable NFTs with AI-powered generation and smart contract deployment.",
+      icon: "🎨",
+      gradient: "from-purple-400 via-pink-500 to-rose-600",
+      href: "#nft-generation",
+      bgColor: "from-purple-500/20 to-pink-500/20",
+    },
+    {
+      title: "GitHub Integration",
+      subtitle: "⚡ Coming Soon",
+      description:
+        "Seamless integration with GitHub repositories for automated vulnerability scanning and instant blockchain reporting.",
+      icon: "🔗",
+      gradient: "from-blue-400 via-cyan-500 to-teal-600",
+      href: "#github-integration",
+      bgColor: "from-blue-500/20 to-cyan-500/20",
+    },
+  ];
+
+  const currentBadge = badges[activeBadge];
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="absolute inset-0 overflow-hidden">
+        {particles.map((particle) => (
+          <div
+            key={particle.id}
+            className="absolute w-1 h-1 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full animate-ping opacity-30"
+            style={{
+              left: `${particle.x}%`,
+              top: `${particle.y}%`,
+              animationDelay: `${particle.delay}s`,
+              animationDuration: "3s",
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="relative w-full max-w-4xl mx-auto">
+        <button
+          onClick={onClose}
+          className="absolute -top-4 -right-4 z-10 w-10 h-10 bg-gradient-to-r from-red-500 to-pink-500 rounded-full flex items-center justify-center hover:scale-110 transition-transform duration-200 shadow-lg"
+        >
+          <X className="w-5 h-5 text-white" />
+        </button>
+
+        <div className="bg-gradient-to-br from-slate-900/95 to-black/95 backdrop-blur-xl rounded-3xl border border-white/10 p-8 shadow-2xl">
+          <div className="text-center mb-8">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <Sparkles className="w-8 h-8 text-yellow-400 animate-pulse" />
+              <h2 className="text-4xl font-bold bg-gradient-to-r from-white via-purple-200 to-pink-200 bg-clip-text text-transparent">
+                Security Report on Solana
+              </h2>
+              <Sparkles className="w-8 h-8 text-yellow-400 animate-pulse" />
+            </div>
+            <p className="text-slate-400 text-lg">
+              Your journey towards writing secure code
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 p-3 bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 mb-8 justify-center">
+            {badges.map((badge, index) => (
+              <button
+                key={index}
+                onClick={() => setActiveBadge(index)}
+                className={`
+                  px-6 py-3 rounded-xl text-sm font-medium transition-all duration-500 relative overflow-hidden group
+                  ${
+                    activeBadge === index
+                      ? "bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25 scale-105"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 hover:scale-102"
+                  }
+                `}
+              >
+                <span className="relative z-10 flex items-center gap-2">
+                  {badge.icon}
+                  <span className="hidden sm:inline">{badge.title}</span>
+                </span>
+                {activeBadge === index && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-purple-400 to-blue-400 opacity-20 animate-pulse" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/5 to-white/0 -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+              </button>
+            ))}
+          </div>
+
+          <div className="relative">
+            <EnhancedPinContainer
+              title={currentBadge.href}
+              href={currentBadge.href}
+            >
+              <div className="w-full h-80 relative overflow-hidden">
+                <div
+                  className={`absolute inset-0 bg-gradient-to-br ${currentBadge.bgColor} rounded-xl`}
+                />
+
+                <div className="absolute inset-0 overflow-hidden">
+                  <div className="absolute top-4 left-4 w-2 h-2 bg-white/40 rounded-full animate-ping opacity-50"></div>
+                  <div className="absolute top-12 right-8 w-1 h-1 bg-white/30 rounded-full animate-ping opacity-40 delay-1000"></div>
+                  <div className="absolute bottom-16 left-8 w-1.5 h-1.5 bg-white/20 rounded-full animate-ping opacity-30 delay-500"></div>
+                  <div className="absolute top-1/2 right-1/4 w-3 h-3 bg-white/10 rounded-full animate-bounce opacity-20"></div>
+                </div>
+
+                <div className="relative z-10 p-6 h-full flex flex-col">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="text-6xl filter drop-shadow-lg">
+                      {currentBadge.icon}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-2xl font-bold text-white mb-2">
+                        {currentBadge.title}
+                      </h3>
+                      <div
+                        className={`
+                        px-4 py-2 rounded-full text-sm font-semibold inline-block
+                        ${
+                          activeBadge === 0
+                            ? "bg-gradient-to-r from-green-400 to-emerald-500 text-white"
+                            : "bg-gradient-to-r from-yellow-400 to-orange-500 text-black"
+                        }
+                      `}
+                      >
+                        {currentBadge.subtitle}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-white/90 text-base leading-relaxed mb-6 flex-1">
+                    {currentBadge.description}
+                  </p>
+
+                  <div className="mt-auto">
+                    <div className="flex justify-between text-sm text-white/70 mb-3">
+                      <span>
+                        {activeBadge === 0
+                          ? "Verification Status"
+                          : "Development Progress"}
+                      </span>
+                      <span className="font-semibold">
+                        {activeBadge === 0 ? "100%" : "75%"}
+                      </span>
+                    </div>
+                    <div className="w-full bg-white/20 rounded-full h-3 overflow-hidden">
+                      <div
+                        className={`h-3 rounded-full transition-all duration-1000 ${
+                          activeBadge === 0
+                            ? "bg-gradient-to-r from-green-400 to-emerald-500 w-full"
+                            : "bg-gradient-to-r from-purple-400 to-blue-500 w-3/4"
+                        }`}
+                      >
+                        <div className="h-full bg-gradient-to-r from-white/20 via-white/40 to-white/20 animate-shimmer" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {activeBadge === 0 && (
+                  <div className="absolute top-4 right-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full flex items-center justify-center animate-pulse">
+                      <Check className="w-6 h-6 text-white" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </EnhancedPinContainer>
+          </div>
+
+          <div className="flex items-center justify-center gap-3 mt-8 text-sm">
+            <div
+              className={`w-3 h-3 rounded-full animate-pulse ${
+                activeBadge === 0 ? "bg-green-500" : "bg-orange-500"
+              }`}
+            ></div>
+            <span className="text-slate-300 font-medium">
+              {activeBadge === 0
+                ? "Report successfully stored on Solana blockchain"
+                : "Feature in active development"}
+            </span>
+            {activeBadge !== 0 && (
+              <Rocket className="w-4 h-4 text-orange-400 animate-bounce" />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <style jsx>{`
+        @keyframes shimmer {
+          0% {
+            transform: translateX(-100%);
+          }
+          100% {
+            transform: translateX(200%);
+          }
+        }
+
+        @keyframes float {
+          0%,
+          100% {
+            transform: translateY(0px) rotate(0deg);
+          }
+          50% {
+            transform: translateY(-20px) rotate(180deg);
+          }
+        }
+
+        .animate-shimmer {
+          animation: shimmer 2s ease-in-out infinite;
+        }
+      `}</style>
+    </div>
+  );
+};
 
 interface PageProps {
   searchParams: {
@@ -53,15 +380,17 @@ export default function DemoPage({ searchParams }: PageProps) {
   const [storingReport, setStoringReport] = useState(false);
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedTxId, setCopiedTxId] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [reportUrl, setReportUrl] = useState<string>(searchParams.pdfUrl || '');
-  const [repositoryUrl, setRepositoryUrl] = useState<string>(searchParams.repoUrl || '');
+  const [repositoryId, setRepositoryId] = useState<string>(searchParams.repoUrl || '');
 
   useEffect(() => {
     if (searchParams.pdfUrl) {
       setReportUrl(searchParams.pdfUrl);
     }
     if (searchParams.repoUrl) {
-      setRepositoryUrl(searchParams.repoUrl);
+      setRepositoryId(searchParams.repoUrl);
     }
   }, [searchParams]);
 
@@ -93,16 +422,17 @@ export default function DemoPage({ searchParams }: PageProps) {
   };
 
   const handleStoreReport = async () => {
-    if (!program || !publicKey || !reportUrl || !repositoryUrl) return;
+    if (!program || !publicKey || !reportUrl || !repositoryId) return;
 
     setStoringReport(true);
     try {
       const { tx } = await storeVulnerabilityReport(
         program,
-        repositoryUrl,
+        repositoryId,
         reportUrl
       );
       setTxSignature(tx);
+      setShowSuccessModal(true);
       await fetchUserReports(program);
     } catch (error) {
       console.error("Error storing report:", error);
@@ -111,9 +441,12 @@ export default function DemoPage({ searchParams }: PageProps) {
     }
   };
 
-  const copyToClipboard = async () => {
-    if (txSignature) {
-      await navigator.clipboard.writeText(txSignature);
+  const copyToClipboard = async (text: string, type: string = '') => {
+    await navigator.clipboard.writeText(text);
+    if (type === 'Transaction ID') {
+      setCopiedTxId(text);
+      setTimeout(() => setCopiedTxId(null), 2000);
+    } else {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -153,12 +486,12 @@ export default function DemoPage({ searchParams }: PageProps) {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="repositoryUrl">Repository URL</Label>
+                <Label htmlFor="repositoryId">Repository ID</Label>
                 <Input
-                  id="repositoryUrl"
-                  value={repositoryUrl}
-                  onChange={(e) => setRepositoryUrl(e.target.value)}
-                  placeholder="Enter the URL of your repository"
+                  id="repositoryId"
+                  value={repositoryId}
+                  onChange={(e) => setRepositoryId(e.target.value)}
+                  placeholder="Enter the ID of your repository"
                   className="bg-gray-800 border-gray-700 text-white"
                 />
               </div>
@@ -167,7 +500,7 @@ export default function DemoPage({ searchParams }: PageProps) {
             <CardFooter>
               <Button
                 onClick={handleStoreReport}
-                disabled={!connected || storingReport || !reportUrl || !repositoryUrl}
+                disabled={!connected || storingReport || !reportUrl || !repositoryId}
                 className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-md"
               >
                 {storingReport ? (
@@ -237,14 +570,16 @@ export default function DemoPage({ searchParams }: PageProps) {
                         <span>
                           Stored on {formatDate(new Date(reportItem.report.timestamp.toNumber() * 1000))}
                         </span>
-                        <a
-                          href={getSolanaExplorerUrl(reportItem.transactionId || '')}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-purple-400 hover:text-purple-300"
-                        >
-                          View Transaction
-                        </a>
+                        {reportItem.transactionId && (
+                          <a
+                            href={getSolanaExplorerUrl(reportItem.transactionId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-purple-400 hover:text-purple-300"
+                          >
+                            View Transaction
+                          </a>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -280,7 +615,7 @@ export default function DemoPage({ searchParams }: PageProps) {
                       {truncateAddress(txSignature)}
                     </span>
                     <button
-                      onClick={copyToClipboard}
+                      onClick={() => copyToClipboard(txSignature)}
                       className="text-gray-400 hover:text-white transition-colors"
                     >
                       {copied ? (
