@@ -358,7 +358,10 @@ const SuccessModal = ({
 };
 
 interface PageProps {
-  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
+  searchParams: Promise<{
+    pdfUrl?: string;
+    repoUrl?: string;
+  }>;
 }
 
 export default function DemoPage({ searchParams }: PageProps) {
@@ -415,18 +418,20 @@ export default function DemoPage({ searchParams }: PageProps) {
 
   useEffect(() => {
     async function handleSearchParams() {
-      if (searchParams) {
+      try {
         const params = await searchParams;
 
         if (params?.repoUrl) {
-          setRepositoryId(decodeURIComponent(params.repoUrl as string));
+          setRepositoryId(decodeURIComponent(params.repoUrl));
         }
 
         if (params?.pdfUrl) {
-          const decodedUrl = decodeURIComponent(params.pdfUrl as string);
+          const decodedUrl = decodeURIComponent(params.pdfUrl);
           setFullReportUrl(decodedUrl);
           setReportUrl(shortenPdfUrl(decodedUrl));
         }
+      } catch (error) {
+        console.error("Error handling search params:", error);
       }
     }
 
