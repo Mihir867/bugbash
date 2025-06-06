@@ -9,6 +9,7 @@ import {
 } from "@solana/web3.js";
 import { Anchor } from "./contract/types/anchor";
 import idl from "./contract/idl/anchor.json";
+import { createHash } from "crypto";
 
 export const PROGRAM_ID = "gK7LKdzB7mKMHGg7Tio7Yatjhrb6V3yAGkYTqbTSoKz";
 
@@ -24,6 +25,11 @@ export type ReportWithTransaction = {
   report: VulnerabilityReport;
   transactionId?: string;
 };
+
+// Helper function to hash repository ID
+function hashRepositoryId(repositoryId: string): Buffer {
+  return createHash("sha256").update(repositoryId).digest();
+}
 
 export function createAnchorWallet(
   wallet: WalletContextState
@@ -90,7 +96,8 @@ export async function storeVulnerabilityReport(
     [
       Buffer.from("vulnerability_report"),
       wallet.publicKey.toBuffer(),
-      Buffer.from(repositoryId),
+      // Buffer.from(repositoryId),
+      hashRepositoryId(repositoryId), // Use hashed repository ID
     ],
     program.programId
   );
@@ -190,7 +197,8 @@ export async function getReportByRepositoryId(
       [
         Buffer.from("vulnerability_report"),
         userPubkey.toBuffer(),
-        Buffer.from(repositoryId),
+        // Buffer.from(repositoryId),
+        hashRepositoryId(repositoryId), // Use hashed repository ID
       ],
       program.programId
     );

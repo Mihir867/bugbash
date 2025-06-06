@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::hash::hash;
 
 declare_id!("gK7LKdzB7mKMHGg7Tio7Yatjhrb6V3yAGkYTqbTSoKz");
 
@@ -26,6 +27,17 @@ pub mod anchor {
     }
 }
 
+pub trait StringExt {
+    fn to_hashed_bytes(&self) -> [u8; 32];
+}
+
+impl StringExt for String {
+    fn to_hashed_bytes(&self) -> [u8; 32] {
+        let hash = hash(self.as_bytes());
+        hash.to_bytes()
+    }
+}
+
 #[derive(Accounts)]
 pub struct Initialize {}
 
@@ -41,9 +53,9 @@ pub struct StoreVulnerabilityReport<'info> {
                32 + // reporter pubkey
                8, // timestamp
         seeds = [
-            b"vulnerability_report", 
+            b"vulnerability_report",
             reporter.key().as_ref(),
-            repository_id.as_bytes()
+            &repository_id.to_hashed_bytes()
         ],
         bump
     )]
