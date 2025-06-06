@@ -358,10 +358,10 @@ const SuccessModal = ({
 };
 
 interface PageProps {
-  searchParams: Promise<{
+  searchParams: {
     pdfUrl?: string;
     repoUrl?: string;
-  }>;
+  };
 }
 
 export default function DemoPage({ searchParams }: PageProps) {
@@ -381,6 +381,20 @@ export default function DemoPage({ searchParams }: PageProps) {
   const [repositoryId, setRepositoryId] = useState<string>("");
   const [fullReportUrl, setFullReportUrl] = useState<string>("");
   const [reportUrl, setReportUrl] = useState<string>("");
+
+  // Handle search params immediately on component mount
+  useEffect(() => {
+    if (searchParams?.repoUrl) {
+      const decodedRepoUrl = decodeURIComponent(searchParams.repoUrl);
+      setRepositoryId(decodedRepoUrl);
+    }
+
+    if (searchParams?.pdfUrl) {
+      const decodedPdfUrl = decodeURIComponent(searchParams.pdfUrl);
+      setFullReportUrl(decodedPdfUrl);
+      setReportUrl(shortenPdfUrl(decodedPdfUrl));
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     async function loadUserReports() {
@@ -415,28 +429,6 @@ export default function DemoPage({ searchParams }: PageProps) {
 
     loadUserReports();
   }, [publicKey, wallet, connection, txSignature, connected]);
-
-  useEffect(() => {
-    async function handleSearchParams() {
-      try {
-        const params = await searchParams;
-
-        if (params?.repoUrl) {
-          setRepositoryId(decodeURIComponent(params.repoUrl));
-        }
-
-        if (params?.pdfUrl) {
-          const decodedUrl = decodeURIComponent(params.pdfUrl);
-          setFullReportUrl(decodedUrl);
-          setReportUrl(shortenPdfUrl(decodedUrl));
-        }
-      } catch (error) {
-        console.error("Error handling search params:", error);
-      }
-    }
-
-    handleSearchParams();
-  }, [searchParams]);
 
   const handleStoreReport = async () => {
     if (!publicKey || !connected) {
