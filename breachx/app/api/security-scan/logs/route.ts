@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { CloudWatchLogsClient, GetLogEventsCommand, DescribeLogStreamsCommand } from '@aws-sdk/client-cloudwatch-logs';
@@ -27,11 +27,13 @@ const logsClient = new CloudWatchLogsClient({
 });
 
 // Constants for connection management
-const HEARTBEAT_INTERVAL = 15000; // Reduced to 15 seconds for more frequent heartbeats
-const MAX_RECONNECT_ATTEMPTS = 20; // Increased max attempts
-const RECONNECT_DELAY = 2000; // Reduced to 2 seconds
-const CONNECTION_TIMEOUT = 30000; // 30 seconds timeout for initial connection
-const MAX_RETRY_DELAY = 10000; // Maximum delay between retries
+const HEARTBEAT_INTERVAL = 30000; // Increased to 30 seconds
+const MAX_RECONNECT_ATTEMPTS = 30; // Increased max attempts
+const RECONNECT_DELAY = 2000; // Base delay of 2 seconds
+const CONNECTION_TIMEOUT = 480000; // 8 minutes timeout for initial connection
+const MAX_RETRY_DELAY = 30000; // Maximum delay between retries
+const KEEP_ALIVE_INTERVAL = 240000; // 4 minutes keep-alive interval
+const MAX_INACTIVITY_TIME = 480000; // 8 minutes max inactivity time
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -85,7 +87,9 @@ export async function GET(request: NextRequest) {
       let retryCount = 0;
       let heartbeatInterval: NodeJS.Timeout | null = null;
       let reconnectTimeout: NodeJS.Timeout | null = null;
+      let keepAliveInterval: NodeJS.Timeout | null = null;
       let lastActivityTime = Date.now();
+      let connectionStartTime = Date.now();
 
       // Function to send heartbeat
       const sendHeartbeat = () => {
@@ -101,8 +105,25 @@ export async function GET(request: NextRequest) {
         lastActivityTime = Date.now();
       };
 
+      // Function to send keep-alive message
+      const sendKeepAlive = () => {
+        if (!streamingActive) return;
+        
+        const keepAliveMessage = `data: ${JSON.stringify({ 
+          message: 'Connection keep-alive',
+          level: 'info',
+          timestamp: Date.now(),
+          type: 'keep-alive'
+        })}\n\n`;
+        controller.enqueue(new TextEncoder().encode(keepAliveMessage));
+        lastActivityTime = Date.now();
+      };
+
       // Start heartbeat interval
       heartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+      
+      // Start keep-alive interval
+      keepAliveInterval = setInterval(sendKeepAlive, KEEP_ALIVE_INTERVAL);
 
       // Function to handle reconnection
       const handleReconnect = () => {
@@ -111,8 +132,10 @@ export async function GET(request: NextRequest) {
         }
 
         if (retryCount < MAX_RECONNECT_ATTEMPTS) {
-          // Use exponential backoff with a maximum delay
-          const delay = Math.min(RECONNECT_DELAY * Math.pow(1.5, retryCount), MAX_RETRY_DELAY);
+          // Use exponential backoff with jitter
+          const baseDelay = Math.min(RECONNECT_DELAY * Math.pow(1.5, retryCount), MAX_RETRY_DELAY);
+          const jitter = Math.random() * 1000; // Add up to 1 second of jitter
+          const delay = baseDelay + jitter;
           retryCount++;
 
           const reconnectMessage = `data: ${JSON.stringify({ 
@@ -145,7 +168,23 @@ export async function GET(request: NextRequest) {
       const checkConnectionHealth = () => {
         const now = Date.now();
         const timeSinceLastActivity = now - lastActivityTime;
+        const totalConnectionTime = now - connectionStartTime;
         
+        // Check for inactivity timeout
+        if (timeSinceLastActivity > MAX_INACTIVITY_TIME) {
+          console.log('Connection inactive for too long, attempting to reconnect...');
+          handleReconnect();
+          return;
+        }
+        
+        // Check for total connection time
+        if (totalConnectionTime > CONNECTION_TIMEOUT) {
+          console.log('Connection timeout reached, attempting to reconnect...');
+          handleReconnect();
+          return;
+        }
+        
+        // Check for stale connection
         if (timeSinceLastActivity > HEARTBEAT_INTERVAL * 2) {
           console.log('Connection appears to be stale, attempting to reconnect...');
           handleReconnect();
@@ -468,6 +507,9 @@ export async function GET(request: NextRequest) {
         }
         if (healthCheckInterval) {
           clearInterval(healthCheckInterval);
+        }
+        if (keepAliveInterval) {
+          clearInterval(keepAliveInterval);
         }
       };
     },

@@ -36,7 +36,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
   githubUrl,
   maxHeight = "500px", 
   autoScroll = true,
-  maxReconnectAttempts = 5
+  maxReconnectAttempts = 30 // Increased default max reconnect attempts
 }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -44,10 +44,12 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [pdfReportUrl, setPdfReportUrl] = useState<string | null>(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now());
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const scanIdRef = useRef<string | null>(null);
+  const connectionStartTimeRef = useRef<number>(Date.now());
 
   const scrollToBottom = useCallback((): void => {
     if (autoScroll && logsEndRef.current) {
@@ -66,12 +68,15 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
 
     if (reconnectAttempt < maxReconnectAttempts && scanIdRef.current) {
       const nextAttempt = reconnectAttempt + 1;
-      const delay = Math.min(1000 * Math.pow(2, nextAttempt), 30000); // Exponential backoff with 30s max
+      // Use exponential backoff with jitter
+      const baseDelay = Math.min(1000 * Math.pow(2, nextAttempt), 30000);
+      const jitter = Math.random() * 1000;
+      const delay = baseDelay + jitter;
       
       setLogs(prev => [...prev, {
         id: Date.now() + Math.random(),
         timestamp: new Date().toISOString(),
-        message: `Reconnecting in ${delay/1000} seconds...`,
+        message: `Reconnecting in ${Math.round(delay/1000)} seconds... (Attempt ${nextAttempt}/${maxReconnectAttempts})`,
         level: 'info'
       }]);
       
@@ -102,11 +107,20 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
         setIsLoading(false);
         setError(null);
         setReconnectAttempt(0);
+        setLastActivityTime(Date.now());
+        connectionStartTimeRef.current = Date.now();
       };
 
       eventSource.onmessage = (event: MessageEvent): void => {
         try {
           const logData: LogData = JSON.parse(event.data);
+          setLastActivityTime(Date.now());
+          
+          // Handle different types of messages
+          if (logData.type === 'heartbeat' || logData.type === 'keep-alive') {
+            // Don't add heartbeat/keep-alive messages to logs
+            return;
+          }
           
           setLogs(prev => [...prev, {
             id: Date.now() + Math.random(),
@@ -127,13 +141,22 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
         setIsLoading(false);
         eventSource.close();
         
-        // Attempt to reconnect
-        handleReconnect();
+        // Check if we should attempt to reconnect
+        const timeSinceLastActivity = Date.now() - lastActivityTime;
+        const totalConnectionTime = Date.now() - connectionStartTimeRef.current;
+        
+        // Only attempt reconnect if within reasonable timeframes
+        if (timeSinceLastActivity < 480000 && totalConnectionTime < 480000) { // 8 minutes
+          handleReconnect();
+        } else {
+          setError('Connection timeout. Please start a new scan.');
+        }
       };
 
       eventSource.addEventListener('complete', async (event: MessageEvent): Promise<void> => {
         try {
           const data: CompleteEventData = JSON.parse(event.data);
+          setLastActivityTime(Date.now());
           
           setLogs(prev => [...prev, {
             id: Date.now() + Math.random(),
@@ -156,7 +179,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       setError(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
       handleReconnect();
     }
-  }, [handleReconnect, scrollToBottom]);
+  }, [handleReconnect, scrollToBottom, lastActivityTime]);
 
   const startScanning = async (): Promise<void> => {
     if (!deploymentUrl) {
