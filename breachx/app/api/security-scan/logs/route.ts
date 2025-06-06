@@ -68,6 +68,9 @@ export async function GET(request: NextRequest) {
       let streamingActive = true;
       let allLogsSent = false;
       let lastForwardToken: string | undefined = undefined;
+      let retryCount = 0;
+      const MAX_RETRIES = 30;
+      const INITIAL_RETRY_DELAY = 2000;
 
       // Function to extract log stream name from task ARN
       const getLogStreamName = (taskArn: string): string => {
@@ -96,6 +99,27 @@ export async function GET(request: NextRequest) {
         }
       };
 
+      // Function to verify log stream exists
+      const verifyLogStream = async (logStreamName: string): Promise<boolean> => {
+        try {
+          const describeParams = {
+            logGroupName: '/ecs/security-scanner',
+            logStreamNamePrefix: logStreamName,
+            limit: 1
+          };
+          
+          const describeCommand = new DescribeLogStreamsCommand(describeParams);
+          const describeResponse = await logsClient.send(describeCommand);
+          
+          console.log('Available log streams:', describeResponse.logStreams?.map(stream => stream.logStreamName));
+          
+          return !!(describeResponse.logStreams && describeResponse.logStreams.length > 0);
+        } catch (error) {
+          console.error('Error verifying log stream:', error);
+          return false;
+        }
+      };
+
       // Function to get ALL logs from CloudWatch (complete history)
       const getAllLogs = async (): Promise<void> => {
         try {
@@ -105,24 +129,9 @@ export async function GET(request: NextRequest) {
           console.log('Task ARN:', scanSession.taskArn);
 
           // First, verify if the log stream exists
-          try {
-            const describeParams = {
-              logGroupName: '/ecs/security-scanner',
-              logStreamNamePrefix: logStreamName,
-              limit: 1
-            };
-            
-            const describeCommand = new DescribeLogStreamsCommand(describeParams);
-            const describeResponse = await logsClient.send(describeCommand);
-            
-            console.log('Available log streams:', describeResponse.logStreams?.map(stream => stream.logStreamName));
-            
-            if (!describeResponse.logStreams || describeResponse.logStreams.length === 0) {
-              throw new Error(`Log stream ${logStreamName} not found. Available streams: ${JSON.stringify(describeResponse.logStreams)}`);
-            }
-          } catch (describeError) {
-            console.error('Error describing log streams:', describeError);
-            throw describeError;
+          const streamExists = await verifyLogStream(logStreamName);
+          if (!streamExists) {
+            throw new Error(`Log stream ${logStreamName} not found`);
           }
 
           // Get all logs from the beginning
@@ -158,6 +167,7 @@ export async function GET(request: NextRequest) {
             // Store the forward token for future polling
             lastForwardToken = response.nextForwardToken;
             allLogsSent = true;
+            retryCount = 0; // Reset retry count on success
           }
 
         } catch (error: any) {
@@ -168,13 +178,9 @@ export async function GET(request: NextRequest) {
 
       // Function to continuously try to fetch logs
       const continuouslyFetchLogs = async (): Promise<void> => {
-        let attempts = 0;
-        const maxAttempts = 30; // Increased max attempts
-        const baseDelay = 2000; // Start with 2 second delay
-
-        while (attempts < maxAttempts && streamingActive) {
+        while (retryCount < MAX_RETRIES && streamingActive) {
           try {
-            console.log(`Attempt ${attempts + 1} to fetch logs...`);
+            console.log(`Attempt ${retryCount + 1} to fetch logs...`);
             await getAllLogs();
             
             if (allLogsSent) {
@@ -182,10 +188,10 @@ export async function GET(request: NextRequest) {
               return; // Exit if successful
             }
           } catch (error: any) {
-            console.log(`Attempt ${attempts + 1} failed:`, error.message);
+            console.log(`Attempt ${retryCount + 1} failed:`, error.message);
             
             // Calculate delay with exponential backoff and jitter
-            const exponentialDelay = baseDelay * Math.pow(2, attempts);
+            const exponentialDelay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
             const jitter = Math.random() * 1000; // Add up to 1 second of random jitter
             const delay = Math.min(exponentialDelay + jitter, 30000); // Cap at 30 seconds
             
@@ -193,7 +199,7 @@ export async function GET(request: NextRequest) {
             
             // Send status update to client
             const statusMessage = `data: ${JSON.stringify({ 
-              message: `Waiting for logs to become available (attempt ${attempts + 1}/${maxAttempts})...`,
+              message: `Waiting for logs to become available (attempt ${retryCount + 1}/${MAX_RETRIES})...`,
               level: 'info',
               timestamp: Date.now(),
               type: 'status'
@@ -201,9 +207,8 @@ export async function GET(request: NextRequest) {
             controller.enqueue(new TextEncoder().encode(statusMessage));
             
             await new Promise(resolve => setTimeout(resolve, delay));
+            retryCount++;
           }
-          
-          attempts++;
         }
 
         if (!allLogsSent) {

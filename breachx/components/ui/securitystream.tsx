@@ -17,8 +17,6 @@ interface SecurityLogStreamProps {
   maxReconnectAttempts?: number;
 }
 
-
-
 interface LogData {
   message: string;
   level?: 'error' | 'warning' | 'success' | 'info';
@@ -107,14 +105,19 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       };
 
       eventSource.onmessage = (event: MessageEvent): void => {
-        const logData: LogData = JSON.parse(event.data);
-        
-        setLogs(prev => [...prev, {
-          id: Date.now() + Math.random(),
-          timestamp: new Date(logData.timestamp || Date.now()).toISOString(),
-          message: logData.message,
-          level: logData.level || 'info'
-        }]);
+        try {
+          const logData: LogData = JSON.parse(event.data);
+          
+          setLogs(prev => [...prev, {
+            id: Date.now() + Math.random(),
+            timestamp: new Date(logData.timestamp || Date.now()).toISOString(),
+            message: logData.message,
+            level: logData.level || 'info'
+          }]);
+          scrollToBottom();
+        } catch (error) {
+          console.error('Error parsing log message:', error);
+        }
       };
 
       eventSource.onerror = (error: Event): void => {
@@ -129,19 +132,23 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       };
 
       eventSource.addEventListener('complete', async (event: MessageEvent): Promise<void> => {
-        const data: CompleteEventData = JSON.parse(event.data);
-        
-        setLogs(prev => [...prev, {
-          id: Date.now() + Math.random(),
-          timestamp: new Date(data.timestamp).toISOString(),
-          message: `Scan completed: ${data.summary}`,
-          level: 'success'
-        }]);
-        setIsConnected(false);
-        eventSource.close();
-        
-        // Fetch latest report when scan completes
-        fetchLatestReport();
+        try {
+          const data: CompleteEventData = JSON.parse(event.data);
+          
+          setLogs(prev => [...prev, {
+            id: Date.now() + Math.random(),
+            timestamp: new Date(data.timestamp).toISOString(),
+            message: `Scan completed: ${data.summary}`,
+            level: 'success'
+          }]);
+          setIsConnected(false);
+          eventSource.close();
+          
+          // Fetch latest report when scan completes
+          await fetchLatestReport();
+        } catch (error) {
+          console.error('Error handling complete event:', error);
+        }
       });
 
     } catch (error) {
@@ -149,7 +156,7 @@ const SecurityLogStream: React.FC<SecurityLogStreamProps> = ({
       setError(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
       handleReconnect();
     }
-  }, [handleReconnect]);
+  }, [handleReconnect, scrollToBottom]);
 
   const startScanning = async (): Promise<void> => {
     if (!deploymentUrl) {
