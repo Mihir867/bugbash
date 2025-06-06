@@ -37,7 +37,6 @@ import { formatDate, getSolanaExplorerUrl, truncateAddress } from "@/lib/utils";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import Image from "next/image";
 
 const shortenPdfUrl = (url: string): string => {
   try {
@@ -81,8 +80,6 @@ const shortenPdfUrl = (url: string): string => {
 };
 
 const EnhancedPinContainer = ({
-  title,
-  href,
   children,
 }: {
   title: string;
