@@ -11,6 +11,8 @@ const ecsClient = new ECSClient({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
   },
+  maxAttempts: 5, // Add retry attempts for AWS SDK
+  retryMode: 'adaptive', // Use adaptive retry mode
 });
 
 const logsClient = new CloudWatchLogsClient({
@@ -19,7 +21,14 @@ const logsClient = new CloudWatchLogsClient({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
   },
+  maxAttempts: 5, // Add retry attempts for AWS SDK
+  retryMode: 'adaptive', // Use adaptive retry mode
 });
+
+// Constants for connection management
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+const MAX_RECONNECT_ATTEMPTS = 10;
+const RECONNECT_DELAY = 5000; // 5 seconds
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -36,6 +45,7 @@ export async function GET(request: NextRequest) {
           'Connection': 'keep-alive',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Headers': 'Cache-Control',
+          'X-Accel-Buffering': 'no', // Disable proxy buffering
         },
       }
     );
@@ -57,6 +67,7 @@ export async function GET(request: NextRequest) {
           'Connection': 'keep-alive',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Headers': 'Cache-Control',
+          'X-Accel-Buffering': 'no', // Disable proxy buffering
         },
       }
     );
@@ -69,8 +80,76 @@ export async function GET(request: NextRequest) {
       let allLogsSent = false;
       let lastForwardToken: string | undefined = undefined;
       let retryCount = 0;
-      const MAX_RETRIES = 30;
-      const INITIAL_RETRY_DELAY = 2000;
+      let heartbeatInterval: NodeJS.Timeout | null = null;
+      let reconnectTimeout: NodeJS.Timeout | null = null;
+      let lastActivityTime = Date.now();
+
+      // Function to send heartbeat
+      const sendHeartbeat = () => {
+        if (!streamingActive) return;
+        
+        const heartbeatMessage = `data: ${JSON.stringify({ 
+          message: 'Connection heartbeat',
+          level: 'info',
+          timestamp: Date.now(),
+          type: 'heartbeat'
+        })}\n\n`;
+        controller.enqueue(new TextEncoder().encode(heartbeatMessage));
+        lastActivityTime = Date.now();
+      };
+
+      // Start heartbeat interval
+      heartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+
+      // Function to handle reconnection
+      const handleReconnect = () => {
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+        }
+
+        if (retryCount < MAX_RECONNECT_ATTEMPTS) {
+          const delay = RECONNECT_DELAY * Math.pow(2, retryCount);
+          retryCount++;
+
+          const reconnectMessage = `data: ${JSON.stringify({ 
+            message: `Connection lost. Reconnecting in ${delay/1000} seconds... (Attempt ${retryCount}/${MAX_RECONNECT_ATTEMPTS})`,
+            level: 'warning',
+            timestamp: Date.now(),
+            type: 'reconnect'
+          })}\n\n`;
+          controller.enqueue(new TextEncoder().encode(reconnectMessage));
+
+          reconnectTimeout = setTimeout(() => {
+            if (streamingActive) {
+              pollForNewLogs();
+            }
+          }, delay);
+        } else {
+          const errorMessage = `data: ${JSON.stringify({ 
+            message: 'Failed to reconnect after multiple attempts. Please refresh the page.',
+            level: 'error',
+            timestamp: Date.now(),
+            type: 'error'
+          })}\n\n`;
+          controller.enqueue(new TextEncoder().encode(errorMessage));
+          controller.close();
+          streamingActive = false;
+        }
+      };
+
+      // Function to check connection health
+      const checkConnectionHealth = () => {
+        const now = Date.now();
+        const timeSinceLastActivity = now - lastActivityTime;
+        
+        if (timeSinceLastActivity > HEARTBEAT_INTERVAL * 2) {
+          console.log('Connection appears to be stale, attempting to reconnect...');
+          handleReconnect();
+        }
+      };
+
+      // Start connection health check
+      const healthCheckInterval = setInterval(checkConnectionHealth, HEARTBEAT_INTERVAL);
 
       // Function to extract log stream name from task ARN
       const getLogStreamName = (taskArn: string): string => {
@@ -78,46 +157,66 @@ export async function GET(request: NextRequest) {
         return `security-scanner/security-scanner/${taskId}`;
       };
 
-      // Function to get task status
+      // Function to get task status with retry
       const getTaskStatus = async (): Promise<string> => {
-        try {
-          const params = {
-            cluster: 'security-scanner-cluster',
-            tasks: [scanSession.taskArn],
-          };
-          
-          const command = new DescribeTasksCommand(params);
-          const response = await ecsClient.send(command);
-          
-          if (response.tasks && response.tasks.length > 0) {
-            return response.tasks[0].lastStatus || 'UNKNOWN';
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+          try {
+            const params = {
+              cluster: 'security-scanner-cluster',
+              tasks: [scanSession.taskArn],
+            };
+            
+            const command = new DescribeTasksCommand(params);
+            const response = await ecsClient.send(command);
+            
+            if (response.tasks && response.tasks.length > 0) {
+              return response.tasks[0].lastStatus || 'UNKNOWN';
+            }
+            return 'UNKNOWN';
+          } catch (error) {
+            attempts++;
+            if (attempts === maxAttempts) {
+              console.error('Error getting task status:', error);
+              return 'ERROR';
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
           }
-          return 'UNKNOWN';
-        } catch (error) {
-          console.error('Error getting task status:', error);
-          return 'ERROR';
         }
+        return 'ERROR';
       };
 
-      // Function to verify log stream exists
+      // Function to verify log stream exists with retry
       const verifyLogStream = async (logStreamName: string): Promise<boolean> => {
-        try {
-          const describeParams = {
-            logGroupName: '/ecs/security-scanner',
-            logStreamNamePrefix: logStreamName,
-            limit: 1
-          };
-          
-          const describeCommand = new DescribeLogStreamsCommand(describeParams);
-          const describeResponse = await logsClient.send(describeCommand);
-          
-          console.log('Available log streams:', describeResponse.logStreams?.map(stream => stream.logStreamName));
-          
-          return !!(describeResponse.logStreams && describeResponse.logStreams.length > 0);
-        } catch (error) {
-          console.error('Error verifying log stream:', error);
-          return false;
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+          try {
+            const describeParams = {
+              logGroupName: '/ecs/security-scanner',
+              logStreamNamePrefix: logStreamName,
+              limit: 1
+            };
+            
+            const describeCommand = new DescribeLogStreamsCommand(describeParams);
+            const describeResponse = await logsClient.send(describeCommand);
+            
+            console.log('Available log streams:', describeResponse.logStreams?.map(stream => stream.logStreamName));
+            
+            return !!(describeResponse.logStreams && describeResponse.logStreams.length > 0);
+          } catch (error) {
+            attempts++;
+            if (attempts === maxAttempts) {
+              console.error('Error verifying log stream:', error);
+              return false;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+          }
         }
+        return false;
       };
 
       // Function to get ALL logs from CloudWatch (complete history)
@@ -161,6 +260,7 @@ export async function GET(request: NextRequest) {
 
                 const logMessage = `data: ${JSON.stringify(logData)}\n\n`;
                 controller.enqueue(new TextEncoder().encode(logMessage));
+                lastActivityTime = Date.now();
               }
             }
             
@@ -172,41 +272,25 @@ export async function GET(request: NextRequest) {
 
         } catch (error: any) {
           console.error('Error getting all logs:', error);
-          throw error; // Re-throw to handle in the retry mechanism
+          throw error;
         }
       };
 
       // Function to continuously try to fetch logs
       const continuouslyFetchLogs = async (): Promise<void> => {
-        while (retryCount < MAX_RETRIES && streamingActive) {
+        while (retryCount < MAX_RECONNECT_ATTEMPTS && streamingActive) {
           try {
             console.log(`Attempt ${retryCount + 1} to fetch logs...`);
             await getAllLogs();
             
             if (allLogsSent) {
               console.log('Successfully retrieved logs');
-              return; // Exit if successful
+              return;
             }
           } catch (error: any) {
             console.log(`Attempt ${retryCount + 1} failed:`, error.message);
-            
-            // Calculate delay with exponential backoff and jitter
-            const exponentialDelay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
-            const jitter = Math.random() * 1000; // Add up to 1 second of random jitter
-            const delay = Math.min(exponentialDelay + jitter, 30000); // Cap at 30 seconds
-            
-            console.log(`Waiting ${Math.round(delay/1000)} seconds before next attempt...`);
-            
-            // Send status update to client
-            const statusMessage = `data: ${JSON.stringify({ 
-              message: `Waiting for logs to become available (attempt ${retryCount + 1}/${MAX_RETRIES})...`,
-              level: 'info',
-              timestamp: Date.now(),
-              type: 'status'
-            })}\n\n`;
-            controller.enqueue(new TextEncoder().encode(statusMessage));
-            
-            await new Promise(resolve => setTimeout(resolve, delay));
+            handleReconnect();
+            await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY * Math.pow(2, retryCount)));
             retryCount++;
           }
         }
@@ -237,7 +321,7 @@ export async function GET(request: NextRequest) {
               logGroupName: '/ecs/security-scanner',
               logStreamName: logStreamName,
               nextToken: lastForwardToken,
-              startFromHead: false, // We're polling for new logs only
+              startFromHead: false,
             };
 
             const command = new GetLogEventsCommand(params);
@@ -258,6 +342,7 @@ export async function GET(request: NextRequest) {
 
                   const logMessage = `data: ${JSON.stringify(logData)}\n\n`;
                   controller.enqueue(new TextEncoder().encode(logMessage));
+                  lastActivityTime = Date.now();
                 }
               }
               
@@ -265,24 +350,13 @@ export async function GET(request: NextRequest) {
               if (response.nextForwardToken && response.nextForwardToken !== lastForwardToken) {
                 lastForwardToken = response.nextForwardToken;
               }
-            } else {
-              // Send a heartbeat message to keep the connection alive
-              const heartbeatMessage = `data: ${JSON.stringify({ 
-                message: 'Waiting for new logs...',
-                level: 'info',
-                timestamp: Date.now(),
-                type: 'heartbeat'
-              })}\n\n`;
-              controller.enqueue(new TextEncoder().encode(heartbeatMessage));
             }
           }
 
           // Continue polling based on task status
           if (taskStatus === 'RUNNING') {
-            // Keep polling every 2 seconds while running
             setTimeout(() => pollForNewLogs(), 2000);
           } else if (taskStatus === 'STOPPING') {
-            // Poll more frequently while stopping
             setTimeout(() => pollForNewLogs(), 1000);
           } else if (taskStatus === 'STOPPED') {
             // Do one final poll and then close
@@ -349,6 +423,7 @@ export async function GET(request: NextRequest) {
           type: 'status'
         })}\n\n`;
         controller.enqueue(new TextEncoder().encode(startMessage));
+        lastActivityTime = Date.now();
 
         // Send a message indicating we're waiting for logs
         const waitingMessage = `data: ${JSON.stringify({ 
@@ -372,6 +447,20 @@ export async function GET(request: NextRequest) {
       };
 
       startStreaming();
+
+      // Cleanup function
+      return () => {
+        streamingActive = false;
+        if (heartbeatInterval) {
+          clearInterval(heartbeatInterval);
+        }
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+        }
+        if (healthCheckInterval) {
+          clearInterval(healthCheckInterval);
+        }
+      };
     },
     cancel() {
       console.log('Stream cancelled by client');
@@ -385,6 +474,7 @@ export async function GET(request: NextRequest) {
       'Connection': 'keep-alive',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Cache-Control',
+      'X-Accel-Buffering': 'no', // Disable proxy buffering
     },
   });
 }
