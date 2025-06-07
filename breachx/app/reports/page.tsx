@@ -382,12 +382,36 @@ export default function DemoPage({ searchParams }: PageProps) {
   const [fullReportUrl, setFullReportUrl] = useState<string>("");
   const [reportUrl, setReportUrl] = useState<string>("");
 
+  useEffect(() => {
+    // Fallback for production issues
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const repoUrl = urlParams.get("repoUrl");
+      const pdfUrl = urlParams.get("pdfUrl");
+
+      console.log("Fallback check - repoUrl:", repoUrl);
+      console.log("Fallback check - pdfUrl:", pdfUrl);
+
+      if (repoUrl && !repositoryId) {
+        const decodedRepoUrl = decodeURIComponent(repoUrl);
+        setRepositoryId(decodedRepoUrl);
+      }
+
+      if (pdfUrl && !fullReportUrl) {
+        const decodedPdfUrl = decodeURIComponent(pdfUrl);
+        const shortenedUrl = shortenPdfUrl(decodedPdfUrl);
+        setFullReportUrl(decodedPdfUrl);
+        setReportUrl(shortenedUrl);
+      }
+    }
+  }, []);
+
   // Handle search params with Promise
   useEffect(() => {
     const handleSearchParams = async () => {
       try {
         const params = await searchParams;
-        
+
         if (params?.repoUrl) {
           const decodedRepoUrl = decodeURIComponent(params.repoUrl);
           setRepositoryId(decodedRepoUrl);
